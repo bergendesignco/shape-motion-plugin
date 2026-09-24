@@ -45,6 +45,11 @@ That's a separate project: read it for reference only, don't change or couple to
   trusts it when present and falls back to `(max-width: 767px)` on the live site. Don't use width
   inside the editor: the frame can be under 767px in desktop view.
   Switching views re-lays out the page, so the editor overlay (pinned at creation) has to be rebuilt.
+- Confirmed from `svg-desktop-editor.html` / `svg-mobile-editor.html` (user's editor saves, copied
+  from DevTools with the iframe's `#document` inline, git-ignored because they contain the account
+  email and IDs): the only class difference between the views is `sqs-device-view-desktop` vs
+  `sqs-device-view-phone`. The site's `<body>` also has `sqs-edit-mode` even when NOT editing, so never
+  match on that. Use `sqs-edit-mode-active` / `sqs-is-page-editing`.
 - `sim/config/index.html` reproduces this locally (Edit and Phone view toggles).
 - Browser pane gotcha: the pane is ~733px wide, which counts as phone on the live test page. Use
   `resize_window` at 1100px width to test desktop.
