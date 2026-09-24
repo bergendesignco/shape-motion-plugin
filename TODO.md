@@ -12,14 +12,23 @@
       real editor (2026-09-24).
 - [x] **Separate mobile animation settings.** `CONFIG = { block, desktop, mobile: "off" | "same" | {…} }`.
       The panel shows which layout it's editing. The On phones dropdown in Mobile view replaced the checkbox.
-      Tested in `sim/config/` and at live widths.
+      Tested in `sim/config/` and at live widths. Approved by the user (2026-09-24).
 - [ ] **Rethink panel controls and wording.** The user isn't sold on the current controls/labels
       (2026-09-24). Revisit layout, naming and grouping once the feature set settles.
+- [ ] **Save straight to the site (no copy/paste).** A "Save to site" button that writes the current
+      CONFIG into the footer Code Injection. It could work from the snippet itself: it runs same-origin
+      inside the editor for a logged-in owner. Squarespace has internal (undocumented) endpoints
+      `GET /api/config/GetInjectionSettings?crumb=…` and `POST /api/config/SaveInjectionSettings?crumb=…`
+      (crumb = CSRF cookie). Noted from the separate gsap-sqsp-extension docs; verify on a test site before relying
+      on them. Must be read-modify-write: replace only the CONFIG block between clear markers
+      (e.g. `/* CONFIG START */ … /* CONFIG END */`), never the rest of the footer. Show a diff/confirm
+      step before saving and keep the previous footer for undo. Internal API can change, so keep
+      Copy code as the fallback.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site
-      from an extension instead of shipping editor code in the snippet. Save the config without
-      copy/paste (extension storage, or generate the final snippet ready to paste).
+      from an extension instead of shipping editor code in the snippet. Saving would go through
+      "Save straight to the site" above.
 - [ ] **MorphSVG.** Morph Squarespace shapes into each other, e.g. circle → stepped-cross, possibly
       while travelling the path. Shape SVGs are simple `<path>`/`<circle>`/`<polygon>` with
       `viewBox="0 0 100 100"` or `0 0 100 150`, so they're a good fit for `MorphSVGPlugin.convertToPath`.
