@@ -53,9 +53,12 @@ localhost. They have nothing to do with the snippet.
 - **Edit mode:** while you're editing the page in Squarespace, the animation stops and the shape
   sits in its normal spot, so it can be dragged and resized. It restarts when you exit Edit mode, and
   unsaved path edits are kept.
-- **Off on phones by default:** unless `mobile: true` (the panel's "Run on mobile" checkbox), the
-  shape stays still on phones. The editor's mobile view counts as a phone, and so does a live-site
-  window 767px wide or less. Switching view or resizing past the breakpoint starts or stops it.
+- **Desktop and phone settings are separate.** Phones means 767px and below: the editor's Mobile
+  view, or a live-site window that narrow. The panel shows which layout you're editing. Switch the
+  editor to Mobile view and use **On phones** to pick **Off** (stays still, the default), **Same as
+  desktop**, or **Own settings** (full controls and its own path, drawn on the mobile layout).
+  Switching view or resizing past the breakpoint swaps the settings live. **Copy code** always
+  copies both.
 - **Editor only for you:** the path editor and settings panel only appear when `SHOW_EDITOR = true`
   **and** the page is open inside the Squarespace editor, or you're logged in. Visitors never see it.
   Add `?mph` to the URL to force it anywhere.
@@ -80,9 +83,23 @@ set `SHOW_EDITOR = false` when you're done.
 
 ## CONFIG reference
 
+```js
+var CONFIG = {
+  "block": "block-…",          // shape block ID (element matching [data-sqsp-block="shape"])
+  "desktop": { …settings },    // 768px and up
+  "mobile": "off"              // 767px and below: "off" | "same" | { …settings }
+};
+```
+
+`mobile`: `"off"` (default) means the shape stays still on phones, `"same"` uses the desktop
+settings, and an object gives phones their own settings with the same keys as desktop. Older flat
+configs (settings at the top level plus `"mobile": true/false`) still work: they're read as desktop,
+with `true` becoming `"same"`.
+
+**Settings keys:**
+
 | Key | Values | Meaning |
 |---|---|---|
-| `block` | `"block-…"` | ID of the shape block (element matching `[data-sqsp-block="shape"]`) |
 | `path` | SVG path string | Pixels. `M0,0` = the block's normal spot in the layout |
 | `duration` | seconds | One trip along the path |
 | `delay` | seconds | Wait before the first run |
@@ -94,7 +111,6 @@ set `SHOW_EDITOR = false` when you're done.
 | `autoRotate` | bool | Face the direction of travel |
 | `rotateOffset` | degrees | Extra rotation when auto-rotating |
 | `anchor` | `"x% y%"` | Point on the shape that rides the path and acts as the rotation pivot |
-| `mobile` | bool (default `false`) | `false` = the shape stays still on phones. `true` = same animation on phones |
 
 ## How it works
 
@@ -119,9 +135,9 @@ set `SHOW_EDITOR = false` when you're done.
 
 ## Known limitations
 
-- Paths are in pixels, so they don't scale across breakpoints, and the mobile layout places blocks
-  differently. That's why mobile is off by default. With `mobile: true`, phones currently get the
-  desktop settings.
+- Paths are in pixels, so they don't scale within a breakpoint, and "Same as desktop" on phones
+  reuses the desktop pixel path. "Own settings" is usually the better choice. Tablets (768px and up)
+  get the desktop settings.
 - The editor overlay doesn't follow window resizes. Reload after resizing.
 - With auto-rotate on, the shape ends at the path's final angle. Flatten the last segment or use
   `rotateOffset` to land upright.

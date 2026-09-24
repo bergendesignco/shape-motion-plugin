@@ -23,6 +23,14 @@ See README.md for usage and the CONFIG reference.
 - Verify three contexts: visitor (`/svg-test-page-motionpath.html`), editor (`/sim/config/`), and
   Edit mode on/off (the sim's Edit button). Observer callbacks are async, so wait before asserting.
 
+## Code layout (snippet)
+- `CONFIG = { block, desktop: {settings}, mobile: "off" | "same" | {settings} }`. A legacy flat config
+  is normalized at load. `settingsFor(phone)` picks the settings (null = stay still).
+- `start()` / `stop()` / `restart()`: a MutationObserver on body class plus the 767px media query call
+  `refresh()`, which restarts only when the edit or phone state actually changes.
+- `startEditor(el, phone)` builds the panel for the current layout and returns `{stop}`. The panel is
+  rebuilt on every restart (collapsed state is kept in `panelCollapsed`).
+
 ## Page facts (from the saved page)
 - 6 shape blocks in section 1: rectangle (`block-yui_3_17_2_1_1790263224900_423`), narrow-pow,
   circle, stepped-cross, triangle, hourglass. Shape SVGs use `preserveAspectRatio="none"`.

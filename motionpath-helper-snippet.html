@@ -9,6 +9,9 @@
       can drag and resize it. It starts again when you click Exit/Done.
     - The path editor + settings panel only appear for you (inside the Squarespace editor, or
       logged in). Visitors only ever get the animation.
+    - Desktop and phones (767px and below) have separate settings. Switch the editor between
+      Desktop and Mobile view to edit each one. Phones are off (shape stays still) until you
+      choose "Same as desktop" or "Own settings" in Mobile view.
 
   How to use:
     1. SHOW_EDITOR = true, then open the page in the Squarespace editor (not in Edit mode) to get
@@ -22,6 +25,7 @@
          Cmd/Ctrl+Z                   undo
     3. Adjust settings in the panel (top-right).
     4. Click "Copy code", then replace the whole `var CONFIG = {...};` below with what you copied.
+       The copied code always includes BOTH desktop and mobile settings.
     5. Set SHOW_EDITOR = false when you're done editing (visitors never see the editor either way).
 -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js"></script>
@@ -33,20 +37,29 @@
 
   var CONFIG = {
     "block": "block-yui_3_17_2_1_1790263224900_423",
-    "path": "M0,0 C150,-120 300,120 450,0",
-    "duration": 4,
-    "delay": 0,
-    "ease": "power1.inOut",
-    "playback": "yoyo",
-    "repeatDelay": 0.5,
-    "start": 0,
-    "end": 1,
-    "home": "start",
-    "autoRotate": false,
-    "rotateOffset": 0,
-    "anchor": "0% 0%",
-    "mobile": false
+    "desktop": {
+      "path": "M0,0 C150,-120 300,120 450,0",
+      "duration": 4,
+      "delay": 0,
+      "ease": "power1.inOut",
+      "playback": "yoyo",
+      "repeatDelay": 0.5,
+      "start": 0,
+      "end": 1,
+      "home": "start",
+      "autoRotate": false,
+      "rotateOffset": 0,
+      "anchor": "0% 0%"
+    },
+    "mobile": "off"
   };
+  // desktop      settings for screens 768px and up
+  // mobile       phones (767px and below):
+  //                "off"  = shape stays still (default)
+  //                "same" = use the desktop settings
+  //                { ... } = its own settings, same keys as desktop
+  //
+  // Settings keys:
   // path         pixels, M0,0 = the block's spot in the Squarespace layout
   // playback     "loop" (restart at the start) | "yoyo" (back and forth) | "once"
   // start / end  0-1, portion of the path to travel
@@ -54,10 +67,32 @@
   //              "end"   = shape begins at the far end of the path and travels INTO its layout spot
   // autoRotate   turn to face the direction of travel (rotateOffset = extra degrees)
   // anchor       point on the shape that rides the path, also the rotation pivot
-  // mobile       false = shape stays still on phones (default), true = animate on phones too
-  //              (same settings as desktop for now)
 
   var SHAPE_SELECTOR = '[data-sqsp-block="shape"]';
+  var SETTING_KEYS = ["path", "duration", "delay", "ease", "playback", "repeatDelay", "start", "end",
+    "home", "autoRotate", "rotateOffset", "anchor"];
+
+  // Older snippets used one flat settings object (+ "mobile": true/false). Read those as desktop.
+  if (!CONFIG.desktop) {
+    var flat = {};
+    SETTING_KEYS.forEach(function (k) { if (k in CONFIG) { flat[k] = CONFIG[k]; delete CONFIG[k]; } });
+    CONFIG.desktop = flat;
+    CONFIG.mobile = CONFIG.mobile === true ? "same" : "off";
+  }
+
+  function copySettings(s) {
+    var out = {};
+    SETTING_KEYS.forEach(function (k) { out[k] = s[k]; });
+    return out;
+  }
+
+  // Settings for the current layout, or null when the shape should stay still.
+  function settingsFor(phone) {
+    if (!phone) return CONFIG.desktop;
+    if (CONFIG.mobile === "same") return CONFIG.desktop;
+    if (CONFIG.mobile && typeof CONFIG.mobile === "object") return CONFIG.mobile;
+    return null;
+  }
 
   function buildTween(el, c) {
     var toHome = c.home === "end";
@@ -81,6 +116,7 @@
   /* ---------------- Squarespace context ---------------- */
 
   // Edit mode: the site (inside the editor's iframe) gets these body classes while editing.
+  // (Don't use "sqs-edit-mode" - it's there even when not editing.)
   function isEditing() {
     var c = document.body.classList;
     return c.contains("sqs-edit-mode-active") || c.contains("sqs-is-page-editing");
@@ -124,7 +160,6 @@
 
   function start() {
     if (running || isEditing()) return;
-    if (isPhone() && !CONFIG.mobile) return; // off on phones unless turned on
     // Editor pins its overlay to the block's page position, so wait for layout to settle.
     if (wantEditor() && document.readyState !== "complete") {
       if (!waitingForLoad) {
@@ -137,10 +172,13 @@
     var el = document.querySelector(SHAPE_SELECTOR + "#" + CONFIG.block);
     if (!el) return console.warn("[shape path] no shape block with id", CONFIG.block);
 
+    var phone = isPhone();
     if (wantEditor()) {
-      running = startEditor(el, CONFIG);
+      running = startEditor(el, phone);
     } else {
-      var tween = buildTween(el, CONFIG);
+      var s = settingsFor(phone);
+      if (!s) return; // phones off: shape stays still
+      var tween = buildTween(el, s);
       running = { stop: function () { tween.revert(); } };
     }
     running.el = el;
@@ -153,6 +191,11 @@
     running = null;
   }
 
+  function restart() {
+    stop();
+    start();
+  }
+
   function init() {
     if (!window.gsap || !window.MotionPathPlugin) {
       return console.warn("[shape path] GSAP or MotionPathPlugin not loaded");
@@ -160,21 +203,20 @@
     gsap.registerPlugin(MotionPathPlugin);
 
     // Restart whenever Edit mode or the device view (desktop/phone) changes. Restarting also
-    // rebuilds the editor overlay, which is pinned to the layout it was created in.
+    // rebuilds the editor for the new layout (its overlay is pinned to the layout it was made in).
     var lastState = null;
     function refresh() {
       var state = isEditing() + "|" + isPhone();
       if (state === lastState) return;
       lastState = state;
-      stop();
-      start();
+      restart();
     }
     new MutationObserver(refresh).observe(document.body, { attributes: true, attributeFilter: ["class"] });
     PHONE_QUERY.addEventListener("change", refresh);
 
     refresh();
 
-    window.shapeMotionPath = { start: start, stop: stop, refresh: refresh, isEditing: isEditing, isPhone: isPhone, wantEditor: wantEditor };
+    window.shapeMotionPath = { config: CONFIG, start: start, stop: stop, restart: restart, isEditing: isEditing, isPhone: isPhone, wantEditor: wantEditor };
   }
 
   /* ---------------- editor (dev only) ---------------- */
@@ -182,21 +224,25 @@
   var EASES = ["none", "sine.inOut", "power1.inOut", "power2.inOut", "power3.inOut", "power2.out", "power2.in",
     "back.out(1.7)", "back.inOut(1.7)", "elastic.out(1, 0.4)", "bounce.out", "expo.inOut", "circ.inOut"];
   var ANCHORS = ["0% 0%", "50% 0%", "100% 0%", "0% 50%", "50% 50%", "100% 50%", "0% 100%", "50% 100%", "100% 100%"];
+  var panelCollapsed = false; // survives the panel being rebuilt on view changes
 
-  function startEditor(el, cfg) {
+  function startEditor(el, phone) {
     gsap.registerPlugin(MotionPathHelper);
-    var helper, tween, output;
+    // The settings object this panel edits: desktop, or phone's own settings. null = nothing to edit here.
+    var cfg = phone ? (CONFIG.mobile && typeof CONFIG.mobile === "object" ? CONFIG.mobile : null) : CONFIG.desktop;
+    var helper = null, tween = null, output;
 
+    // Starter paths, sized to the block but kept on screen (blocks are near full width on phones).
     function openPath() {
-      var w = Math.round(el.offsetWidth * 0.7);
+      var w = Math.round(Math.min(el.offsetWidth * 0.7, window.innerWidth * 0.13));
       return "M0,0 C" + w + "," + -w * 0.6 + " " + w * 2 + "," + w * 0.6 + " " + w * 3 + ",0";
     }
     function loopPath() {
-      var w = Math.round(el.offsetWidth * 0.6);
+      var w = Math.round(Math.min(el.offsetWidth * 0.6, window.innerWidth * 0.15));
       return "M0,0 C0,-" + w + " " + w * 2 + ",-" + w + " " + w * 2 + ",0 C" + w * 2 + "," + w + " 0," + w + " 0,0";
     }
-    function currentPath() {
-      return helper ? helper.getString().trim() : cfg.path;
+    function syncPath() {
+      if (helper && cfg) cfg.path = helper.getString().trim();
     }
 
     // Where the block sits in the layout with no animation applied (page coordinates).
@@ -209,7 +255,8 @@
     }
 
     function rebuild(newPath) {
-      cfg.path = newPath || currentPath();
+      syncPath();
+      if (newPath) cfg.path = newPath;
       if (helper) helper.kill(); // also reverts the tween
       tween = buildTween(el, cfg);
       var pos = layoutRect();
@@ -227,15 +274,14 @@
     }
 
     function writeOutput() {
-      var out = {};
-      Object.keys(cfg).forEach(function (k) { out[k] = cfg[k]; });
-      out.path = currentPath();
-      output.value = "var CONFIG = " + JSON.stringify(out, null, 2) + ";";
+      syncPath();
+      output.value = "var CONFIG = " + JSON.stringify(CONFIG, null, 2) + ";";
     }
 
     /* ---- panel ---- */
     var panel = document.createElement("div");
     panel.className = "mph-panel";
+    panel.classList.toggle("is-collapsed", panelCollapsed);
     document.body.appendChild(panel);
 
     var head = document.createElement("div");
@@ -244,10 +290,11 @@
     title.textContent = "Shape motion path";
     var toggle = document.createElement("button");
     toggle.type = "button";
-    toggle.textContent = "–";
+    toggle.textContent = panelCollapsed ? "+" : "–";
     toggle.addEventListener("click", function () {
-      panel.classList.toggle("is-collapsed");
-      toggle.textContent = panel.classList.contains("is-collapsed") ? "+" : "–";
+      panelCollapsed = !panelCollapsed;
+      panel.classList.toggle("is-collapsed", panelCollapsed);
+      toggle.textContent = panelCollapsed ? "+" : "–";
     });
     head.appendChild(title);
     head.appendChild(toggle);
@@ -256,6 +303,18 @@
     var body = document.createElement("div");
     body.className = "mph-body";
     panel.appendChild(body);
+
+    var layout = document.createElement("div");
+    layout.className = "mph-layout";
+    layout.textContent = phone ? "Phone settings · 767px and below" : "Desktop settings · 768px and up";
+    body.appendChild(layout);
+
+    function note(text) {
+      var n = document.createElement("p");
+      n.className = "mph-note";
+      n.textContent = text;
+      body.appendChild(n);
+    }
 
     function row(label, control, hint) {
       var r = document.createElement("div");
@@ -269,22 +328,7 @@
       return r;
     }
 
-    function slider(label, key, min, max, step, fmt, hint) {
-      var wrap = document.createElement("span");
-      wrap.className = "mph-slider";
-      var input = document.createElement("input");
-      input.type = "range"; input.min = min; input.max = max; input.step = step; input.value = cfg[key];
-      var val = document.createElement("em");
-      var show = function () { val.textContent = fmt(parseFloat(input.value)); };
-      show();
-      input.addEventListener("input", show);
-      input.addEventListener("change", function () { cfg[key] = parseFloat(input.value); rebuild(); });
-      wrap.appendChild(input);
-      wrap.appendChild(val);
-      row(label, wrap, hint);
-    }
-
-    function select(label, key, options, hint) {
+    function selectEl(options, value, onChange) {
       var s = document.createElement("select");
       options.forEach(function (o) {
         var opt = document.createElement("option");
@@ -292,74 +336,49 @@
         opt.textContent = Array.isArray(o) ? o[1] : o;
         s.appendChild(opt);
       });
-      s.value = cfg[key];
-      s.addEventListener("change", function () { cfg[key] = s.value; rebuild(); });
-      row(label, s, hint);
+      s.value = value;
+      s.addEventListener("change", function () { onChange(s.value); });
+      return s;
     }
 
-    var secs = function (v) { return v + "s"; };
-    var pct = function (v) { return Math.round(v * 100) + "%"; };
+    if (phone) {
+      var mode = typeof CONFIG.mobile === "object" && CONFIG.mobile ? "own" : (CONFIG.mobile === "same" ? "same" : "off");
+      row("On phones", selectEl([["off", "Off (stays still)"], ["same", "Same as desktop"], ["own", "Own settings"]], mode, function (v) {
+        if (v === "own") {
+          // Start from the desktop settings, with a path sized to the phone layout.
+          var s = copySettings(CONFIG.desktop);
+          s.path = openPath();
+          CONFIG.mobile = s;
+        } else {
+          CONFIG.mobile = v;
+        }
+        restart(); // rebuild the panel + animation for the new choice
+      }), "What the shape does on phones (767px and below)");
+    } else {
+      var summary = CONFIG.mobile === "same" ? "same as desktop" : (typeof CONFIG.mobile === "object" && CONFIG.mobile ? "own settings" : "off (stays still)");
+      note("Phones: " + summary + ". Switch to Mobile view to change.");
+    }
 
-    slider("Duration", "duration", 0.2, 15, 0.1, secs, "Seconds for one trip along the path");
-    slider("Delay", "delay", 0, 5, 0.1, secs, "Wait before the first run");
-    select("Ease", "ease", EASES, "Speed curve");
-    select("Playback", "playback", [["loop", "Loop (restart)"], ["yoyo", "Back and forth"], ["once", "Play once"]]);
-    slider("Pause between", "repeatDelay", 0, 5, 0.1, secs, "Pause between loops");
-    slider("Start", "start", 0, 1, 0.01, pct, "Where on the path the trip begins");
-    slider("End", "end", 0, 1, 0.01, pct, "Where on the path the trip ends");
-    select("Layout spot is", "home", [["start", "Path start (travel away)"], ["end", "Path end (travel in)"]],
-      "Which end of the path is the block's normal Squarespace position");
+    if (cfg) {
+      buildControls();
+    } else if (CONFIG.mobile === "same") {
+      note("Using the desktop settings. Switch to Desktop view to edit them, or pick \"Own settings\".");
+      tween = buildTween(el, CONFIG.desktop); // preview only
+    } else {
+      note("The shape stays in its normal spot on phones.");
+    }
 
-    var rot = document.createElement("input");
-    rot.type = "checkbox";
-    rot.checked = cfg.autoRotate;
-    rot.addEventListener("change", function () { cfg.autoRotate = rot.checked; rebuild(); });
-    row("Auto-rotate", rot, "Turn to face the direction of travel");
-
-    var mob = document.createElement("input");
-    mob.type = "checkbox";
-    mob.checked = cfg.mobile;
-    mob.addEventListener("change", function () { cfg.mobile = mob.checked; writeOutput(); });
-    row("Run on mobile", mob, "Off = the shape stays still on phones. On = same animation on phones.");
-    slider("Rotate offset", "rotateOffset", -180, 180, 5, function (v) { return v + "°"; });
-
-    var grid = document.createElement("span");
-    grid.className = "mph-anchor";
-    ANCHORS.forEach(function (a) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.title = a;
-      b.classList.toggle("is-active", a === cfg.anchor);
-      b.addEventListener("click", function (e) {
-        e.preventDefault();
-        cfg.anchor = a;
-        grid.querySelectorAll("button").forEach(function (x) { x.classList.toggle("is-active", x === b); });
-        rebuild();
-      });
-      grid.appendChild(b);
+    var copyBtn = document.createElement("button");
+    copyBtn.type = "button";
+    copyBtn.className = "mph-copy";
+    copyBtn.textContent = "Copy code";
+    copyBtn.addEventListener("click", function () {
+      writeOutput();
+      var done = function () { copyBtn.textContent = "Copied!"; setTimeout(function () { copyBtn.textContent = "Copy code"; }, 1200); };
+      if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(output.value).then(done);
+      else { output.select(); document.execCommand("copy"); done(); }
     });
-    row("Anchor point", grid, "Point on the shape that rides the path (and rotation pivot)");
-
-    var actions = document.createElement("div");
-    actions.className = "mph-actions";
-    [
-      ["Replay", function () { tween.restart(true); }],
-      ["New A→B path", function () { rebuild(openPath()); }],
-      ["New loop path", function () { rebuild(loopPath()); }],
-      ["Copy code", function (btn) {
-        writeOutput();
-        var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = "Copy code"; }, 1200); };
-        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(output.value).then(done);
-        else { output.select(); document.execCommand("copy"); done(); }
-      }]
-    ].forEach(function (a) {
-      var b = document.createElement("button");
-      b.type = "button";
-      b.textContent = a[0];
-      b.addEventListener("click", function () { a[1](b); });
-      actions.appendChild(b);
-    });
-    body.appendChild(actions);
+    body.appendChild(copyBtn);
 
     output = document.createElement("textarea");
     output.readOnly = true;
@@ -367,13 +386,86 @@
     output.addEventListener("focus", writeOutput);
     body.appendChild(output);
 
-    rebuild(cfg.path);
+    if (cfg) rebuild(cfg.path);
+    else writeOutput();
+
+    function buildControls() {
+      function slider(label, key, min, max, step, fmt, hint) {
+        var wrap = document.createElement("span");
+        wrap.className = "mph-slider";
+        var input = document.createElement("input");
+        input.type = "range"; input.min = min; input.max = max; input.step = step; input.value = cfg[key];
+        var val = document.createElement("em");
+        var show = function () { val.textContent = fmt(parseFloat(input.value)); };
+        show();
+        input.addEventListener("input", show);
+        input.addEventListener("change", function () { cfg[key] = parseFloat(input.value); rebuild(); });
+        wrap.appendChild(input);
+        wrap.appendChild(val);
+        row(label, wrap, hint);
+      }
+      function select(label, key, options, hint) {
+        row(label, selectEl(options, cfg[key], function (v) { cfg[key] = v; rebuild(); }), hint);
+      }
+
+      var secs = function (v) { return v + "s"; };
+      var pct = function (v) { return Math.round(v * 100) + "%"; };
+
+      slider("Duration", "duration", 0.2, 15, 0.1, secs, "Seconds for one trip along the path");
+      slider("Delay", "delay", 0, 5, 0.1, secs, "Wait before the first run");
+      select("Ease", "ease", EASES, "Speed curve");
+      select("Playback", "playback", [["loop", "Loop (restart)"], ["yoyo", "Back and forth"], ["once", "Play once"]]);
+      slider("Pause between", "repeatDelay", 0, 5, 0.1, secs, "Pause between loops");
+      slider("Start", "start", 0, 1, 0.01, pct, "Where on the path the trip begins");
+      slider("End", "end", 0, 1, 0.01, pct, "Where on the path the trip ends");
+      select("Layout spot is", "home", [["start", "Path start (travel away)"], ["end", "Path end (travel in)"]],
+        "Which end of the path is the block's normal Squarespace position");
+
+      var rot = document.createElement("input");
+      rot.type = "checkbox";
+      rot.checked = cfg.autoRotate;
+      rot.addEventListener("change", function () { cfg.autoRotate = rot.checked; rebuild(); });
+      row("Auto-rotate", rot, "Turn to face the direction of travel");
+      slider("Rotate offset", "rotateOffset", -180, 180, 5, function (v) { return v + "°"; });
+
+      var grid = document.createElement("span");
+      grid.className = "mph-anchor";
+      ANCHORS.forEach(function (a) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.title = a;
+        b.classList.toggle("is-active", a === cfg.anchor);
+        b.addEventListener("click", function () {
+          cfg.anchor = a;
+          grid.querySelectorAll("button").forEach(function (x) { x.classList.toggle("is-active", x === b); });
+          rebuild();
+        });
+        grid.appendChild(b);
+      });
+      row("Anchor point", grid, "Point on the shape that rides the path (and rotation pivot)");
+
+      var actions = document.createElement("div");
+      actions.className = "mph-actions";
+      [
+        ["Replay", function () { tween.restart(true); }],
+        ["New A→B path", function () { rebuild(openPath()); }],
+        ["New loop path", function () { rebuild(loopPath()); }]
+      ].forEach(function (a) {
+        var b = document.createElement("button");
+        b.type = "button";
+        b.textContent = a[0];
+        b.addEventListener("click", a[1]);
+        actions.appendChild(b);
+      });
+      body.appendChild(actions);
+    }
 
     return {
       stop: function () {
-        cfg.path = currentPath(); // keep unsaved path edits for when the editor comes back
-        helper.kill();            // removes the path overlay and reverts the tween
-        helper = null;
+        syncPath();                    // keep unsaved path edits for when the editor comes back
+        if (helper) helper.kill();     // removes the path overlay and reverts the tween
+        else if (tween) tween.revert();
+        helper = tween = null;
         panel.remove();
       }
     };
@@ -393,6 +485,8 @@
   .mph-head button { all: unset; cursor: pointer; padding: 0 6px; font-size: 16px; }
   .mph-panel.is-collapsed .mph-body { display: none; }
   .mph-body { display: flex; flex-direction: column; gap: 8px; margin-top: 10px; }
+  .mph-layout { padding: 4px 8px; border-radius: 4px; background: rgba(255,59,107,.2); color: #ffc2d1; }
+  .mph-note { margin: 0; opacity: .7; }
   .mph-row { display: grid; grid-template-columns: 92px 1fr; align-items: center; gap: 8px; margin: 0; }
   .mph-row > span:first-child { opacity: .75; }
   .mph-slider { display: flex; align-items: center; gap: 6px; }
@@ -404,9 +498,9 @@
   .mph-anchor button { all: unset; cursor: pointer; width: 18px; height: 18px; border-radius: 3px; background: rgba(255,255,255,.18); }
   .mph-anchor button.is-active { background: #ff3b6b; }
   .mph-actions { display: flex; flex-wrap: wrap; gap: 4px; }
-  .mph-actions button { all: unset; cursor: pointer; padding: 5px 8px; border-radius: 4px; background: rgba(255,255,255,.14); }
+  .mph-actions button, .mph-copy { all: unset; cursor: pointer; padding: 5px 8px; border-radius: 4px; background: rgba(255,255,255,.14); }
   .mph-actions button:hover { background: rgba(255,255,255,.28); }
-  .mph-actions button:last-child { background: #ff3b6b; }
+  .mph-panel .mph-copy { align-self: flex-start; background: #ff3b6b; }
   .mph-panel textarea { width: 100%; resize: vertical; padding: 6px; border: 0; border-radius: 4px; background: #111;
     font: 11px/1.35 ui-monospace, Menlo, monospace; }
 </style>

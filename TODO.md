@@ -10,13 +10,11 @@
 - [x] **Off on mobile by default.** `CONFIG.mobile` (panel: "Run on mobile"). It uses the editor's device-view class
       and the 767px media query on the live site. Tested in `sim/config/`, at live widths, and in the
       real editor (2026-09-24).
-- [ ] **Separate mobile animation settings.** Paths are in pixels and the mobile layout places blocks
-      differently, so mobile needs its own settings: its own path plus duration, ease, playback and so on,
-      (turning it off on mobile is done). Probably a `CONFIG.mobile` block of overrides applied with
-      `gsap.matchMedia()` at Squarespace's 767px breakpoint on the live site. In the editor, the site
-      `<body>` switches `sqs-device-view-desktop` → `sqs-device-view-phone` in mobile view: watch that
-      class to swap settings and switch the panel to the mobile settings. Restart-on-view-change and the
-      sim's device toggle already exist.
+- [x] **Separate mobile animation settings.** `CONFIG = { block, desktop, mobile: "off" | "same" | {…} }`.
+      The panel shows which layout it's editing. The On phones dropdown in Mobile view replaced the checkbox.
+      Tested in `sim/config/` and at live widths.
+- [ ] **Rethink panel controls and wording.** The user isn't sold on the current controls/labels
+      (2026-09-24). Revisit layout, naming and grouping once the feature set settles.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site
