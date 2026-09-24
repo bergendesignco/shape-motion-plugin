@@ -8,7 +8,8 @@
       editor frame or with `data-authenticated-account`, and `?mph` still forces it. Checked on the real
       site (2026-09-24).
 - [x] **Off on mobile by default.** `CONFIG.mobile` (panel: "Run on mobile"). It uses the editor's device-view class
-      and the 767px media query on the live site. Tested in `sim/config/` and at live widths.
+      and the 767px media query on the live site. Tested in `sim/config/`, at live widths, and in the
+      real editor (2026-09-24).
 - [ ] **Separate mobile animation settings.** Paths are in pixels and the mobile layout places blocks
       differently, so mobile needs its own settings: its own path plus duration, ease, playback and so on,
       (turning it off on mobile is done). Probably a `CONFIG.mobile` block of overrides applied with
