@@ -2,11 +2,16 @@
 
 ## Up next
 - [x] **Disable in Squarespace edit mode.** Watches the site `<body>` for `sqs-edit-mode-active` /
-      `sqs-is-page-editing` and stops/restarts. Tested in `sim/config/`; still needs a test on the real
-      editor.
+      `sqs-is-page-editing` and stops/restarts. Tested in `sim/config/` and on the real
+      site (2026-09-24).
 - [x] **Editor only for the site owner, never on the live page.** Shows only inside the Squarespace
-      editor frame or with `data-authenticated-account`, and `?mph` still forces it. Needs a real-site
-      check that the attribute is missing for logged-out visitors.
+      editor frame or with `data-authenticated-account`, and `?mph` still forces it. Checked on the real
+      site (2026-09-24).
+- [ ] **Separate mobile animation settings.** Paths are in pixels and the mobile layout places blocks
+      differently, so mobile needs its own settings: its own path plus duration, ease, playback and so on,
+      or at least "turn it off on mobile". Probably a `CONFIG.mobile` block of overrides applied with
+      `gsap.matchMedia()` at Squarespace's 767px breakpoint, with the panel switching to the mobile
+      settings when the window is that narrow.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site
@@ -22,4 +27,4 @@
 - [ ] Multiple shapes, each with its own editor and controls
 - [ ] Shape picker: click a shape on the page to edit it
 - [ ] Auto-save config (e.g. localStorage) instead of copy/paste
-- [ ] Breakpoint-specific paths (desktop vs. mobile), or paths that scale with the block
+- [ ] Paths that scale with the block instead of fixed pixels

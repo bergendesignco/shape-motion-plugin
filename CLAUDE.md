@@ -37,8 +37,8 @@ That's a separate project: read it for reference only, don't change or couple to
 - Edit mode on: the site's `<body>` gets `sqs-edit-mode-active sqs-is-page-editing` (plus
   `is-expanded sqs-hide-overlay-widgets`), and the outer `<html>` gets `editing-page`.
 - The site's `<html>` has `data-authenticated-account` inside the editor, and it's missing from the
-  public saved page. Assumed to mean logged in, but a logged-in vs. logged-out save of the live site
-  would confirm it.
+  public saved page. It means logged in: checked on the real site, where the editor panel
+  doesn't show for logged-out visitors (2026-09-24).
 - `sim/config/index.html` reproduces this locally.
 
 ## MotionPathHelper gotchas (checked against the 3.14.1 source)
