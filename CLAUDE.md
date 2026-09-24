@@ -20,12 +20,26 @@ See README.md for usage and the CONFIG reference.
 - Edit `motionpath-helper-snippet.html`, then run `python3 build-test-page.py` and serve with
   `python3 -m http.server 8765` (also configured in `.claude/launch.json` as `static`).
 - Never edit `svg-test-page.html`. It's the fixture. When the user sends a new saved page, replace it.
-- Verify in a browser with the editor on AND with `SHOW_EDITOR = false`.
+- Verify three contexts: visitor (`/svg-test-page-motionpath.html`), editor (`/sim/config/`), and
+  Edit mode on/off (the sim's Edit button). Observer callbacks are async, so wait before asserting.
 
 ## Page facts (from the saved page)
 - 6 shape blocks in section 1: rectangle (`block-yui_3_17_2_1_1790263224900_423`), narrow-pow,
   circle, stepped-cross, triangle, hourglass. Shape SVGs use `preserveAspectRatio="none"`.
 - The footer also runs the sqspninja image-trail plugin, which needs GSAP.
+
+## Squarespace editor facts
+Verified by diffing the saved edit-mode vs. non-edit-mode editor pages in
+`~/Documents/chrome-extensions/gsap-sqsp-extension/examples and docs/squarespace editor webpage examples/`.
+That's a separate project: read it for reference only, don't change or couple to it.
+- The editor page (`/config/...`, `body.squarespace-config`) holds the site in `iframe#sqs-site-frame`,
+  on the same origin. Code Injection runs **inside** the iframe.
+- Edit mode on: the site's `<body>` gets `sqs-edit-mode-active sqs-is-page-editing` (plus
+  `is-expanded sqs-hide-overlay-widgets`), and the outer `<html>` gets `editing-page`.
+- The site's `<html>` has `data-authenticated-account` inside the editor, and it's missing from the
+  public saved page. Assumed to mean logged in, but a logged-in vs. logged-out save of the live site
+  would confirm it.
+- `sim/config/index.html` reproduces this locally.
 
 ## MotionPathHelper gotchas (checked against the 3.14.1 source)
 - `helper.kill()` also reverts its tween, so rebuild the tween after killing it.

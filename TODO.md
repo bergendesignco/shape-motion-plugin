@@ -1,16 +1,12 @@
 # TODO
 
 ## Up next
-- [ ] **Disable in Squarespace edit mode.** Don't run the animation or the editor while the page is
-      being edited in Squarespace, since moving blocks fight with dragging and resizing them. Needs a
-      reliable way to detect edit mode. Candidates to verify on a saved editor page: the
-      `sqs-edit-mode-active` body class, or the page running inside the Squarespace frame
-      (`window.top !== window.self`). It should also react when the user toggles edit mode, not just
-      on load.
-- [ ] **Editor only for the site owner, never on the live page.** Public visitors should only get the
-      animation, never the path editor or panel. Replace the manual `SHOW_EDITOR` flag / `?mph`
-      with detection of a logged-in owner or the Squarespace preview frame. Keep `?mph` as a manual
-      override.
+- [x] **Disable in Squarespace edit mode.** Watches the site `<body>` for `sqs-edit-mode-active` /
+      `sqs-is-page-editing` and stops/restarts. Tested in `sim/config/`; still needs a test on the real
+      editor.
+- [x] **Editor only for the site owner, never on the live page.** Shows only inside the Squarespace
+      editor frame or with `data-authenticated-account`, and `?mph` still forces it. Needs a real-site
+      check that the attribute is missing for logged-out visitors.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site

@@ -4,8 +4,15 @@
   Only ONE gsap.min.js line on the page. If another one is already in your footer, delete it
   and keep this snippet ABOVE any other code that uses GSAP.
 
+  Squarespace editor:
+    - While Edit mode is on, the animation stops and the shape sits in its normal spot so you
+      can drag and resize it. It starts again when you click Exit/Done.
+    - The path editor + settings panel only appear for you (inside the Squarespace editor, or
+      logged in). Visitors only ever get the animation.
+
   How to use:
-    1. SHOW_EDITOR = true (or add ?mph to the page URL) shows the path + settings panel.
+    1. SHOW_EDITOR = true, then open the page in the Squarespace editor (not in Edit mode) to get
+       the path + settings panel. Add ?mph to the page URL to force it anywhere (e.g. local testing).
     2. Edit the path on the page:
          drag points / handles        move and bend the path
          Option/Alt-click the path    add a point
@@ -15,14 +22,14 @@
          Cmd/Ctrl+Z                   undo
     3. Adjust settings in the panel (top-right).
     4. Click "Copy code", then replace the whole `var CONFIG = {...};` below with what you copied.
-    5. Set SHOW_EDITOR = false before going live.
+    5. Set SHOW_EDITOR = false when you're done editing (visitors never see the editor either way).
 -->
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/gsap.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/MotionPathPlugin.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/gsap@3.14.1/dist/MotionPathHelper.min.js"></script>
 <script>
 (function () {
-  var SHOW_EDITOR = true;
+  var SHOW_EDITOR = true; // editor for the site owner only; ?mph in the URL forces it anywhere
 
   var CONFIG = {
     "block": "block-yui_3_17_2_1_1790263224900_423",
@@ -68,22 +75,84 @@
     });
   }
 
+  /* ---------------- Squarespace context ---------------- */
+
+  // Edit mode: the site (inside the editor's iframe) gets these body classes while editing.
+  function isEditing() {
+    var c = document.body.classList;
+    return c.contains("sqs-edit-mode-active") || c.contains("sqs-is-page-editing");
+  }
+
+  // The site is running inside the Squarespace editor (iframe#sqs-site-frame on a /config page).
+  function inSquarespaceEditor() {
+    if (window.top === window.self) return false;
+    try {
+      return /\/config(\/|$)/.test(window.top.location.pathname) || !!window.top.document.getElementById("sqs-site-frame");
+    } catch (e) {
+      return false; // cross-origin parent: not the Squarespace editor
+    }
+  }
+
+  // Logged-in owner/contributor viewing the site (Squarespace adds this attribute to <html>).
+  function isLoggedIn() {
+    return document.documentElement.hasAttribute("data-authenticated-account");
+  }
+
+  function wantEditor() {
+    if (/[?&]mph\b/.test(location.search)) return true;
+    return SHOW_EDITOR && (inSquarespaceEditor() || isLoggedIn());
+  }
+
+  /* ---------------- start / stop ---------------- */
+
+  var running = null; // { stop: fn } while the animation (or editor) is active
+  var waitingForLoad = false;
+
+  function start() {
+    if (running || isEditing()) return;
+    // Editor pins its overlay to the block's page position, so wait for layout to settle.
+    if (wantEditor() && document.readyState !== "complete") {
+      if (!waitingForLoad) {
+        waitingForLoad = true;
+        window.addEventListener("load", function () { waitingForLoad = false; start(); });
+      }
+      return;
+    }
+    // Look the block up fresh each time: Squarespace can re-render blocks after editing.
+    var el = document.querySelector(SHAPE_SELECTOR + "#" + CONFIG.block);
+    if (!el) return console.warn("[shape path] no shape block with id", CONFIG.block);
+
+    if (wantEditor()) {
+      running = startEditor(el, CONFIG);
+    } else {
+      var tween = buildTween(el, CONFIG);
+      running = { stop: function () { tween.revert(); } };
+    }
+    running.el = el;
+  }
+
+  function stop() {
+    if (!running) return;
+    running.stop();
+    gsap.set(running.el, { clearProps: "transform,transformOrigin" }); // back to its layout spot
+    running = null;
+  }
+
   function init() {
     if (!window.gsap || !window.MotionPathPlugin) {
       return console.warn("[shape path] GSAP or MotionPathPlugin not loaded");
     }
     gsap.registerPlugin(MotionPathPlugin);
 
-    var el = document.querySelector(SHAPE_SELECTOR + "#" + CONFIG.block);
-    if (!el) return console.warn("[shape path] no shape block with id", CONFIG.block);
+    // Pause while Squarespace's Edit mode is on, resume when it's off.
+    new MutationObserver(function () {
+      if (isEditing()) stop();
+      else if (!running) start();
+    }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
 
-    if (SHOW_EDITOR || /[?&]mph\b/.test(location.search)) {
-      // Editor pins its overlay to the block's page position, so wait for layout to settle.
-      if (document.readyState === "complete") startEditor(el, CONFIG);
-      else window.addEventListener("load", function () { startEditor(el, CONFIG); });
-    } else {
-      buildTween(el, CONFIG);
-    }
+    start();
+
+    window.shapeMotionPath = { start: start, stop: stop, isEditing: isEditing, wantEditor: wantEditor };
   }
 
   /* ---------------- editor (dev only) ---------------- */
@@ -271,6 +340,15 @@
     body.appendChild(output);
 
     rebuild(cfg.path);
+
+    return {
+      stop: function () {
+        cfg.path = currentPath(); // keep unsaved path edits for when the editor comes back
+        helper.kill();            // removes the path overlay and reverts the tween
+        helper = null;
+        panel.remove();
+      }
+    };
   }
 
   if (document.readyState === "loading") document.addEventListener("DOMContentLoaded", init);

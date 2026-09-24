@@ -1,0 +1,46 @@
+<!DOCTYPE html>
+<!--
+  Local stand-in for the Squarespace editor, for testing the snippet's editor detection.
+  Mirrors what the real editor does (see CLAUDE.md "Squarespace editor facts"):
+    - outer page lives under a /config path, with class "squarespace-config" on <body>
+    - the site loads in iframe#sqs-site-frame (same origin)
+    - Edit mode adds "editing-page" to the outer <html> and
+      "sqs-edit-mode-active sqs-is-page-editing" to the site's <body>
+  Open: http://localhost:8765/sim/config/  (run build-test-page.py first)
+-->
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<title>Editor Simulator</title>
+<style>
+  html, body { margin: 0; height: 100%; font: 13px/1.3 system-ui, sans-serif; }
+  body { display: flex; flex-direction: column; background: #f1f1f1; }
+  .bar { display: flex; align-items: center; gap: 12px; padding: 8px 14px; background: #fff; border-bottom: 1px solid #ddd; }
+  .bar button { padding: 6px 14px; border: 0; border-radius: 16px; background: #111; color: #fff; cursor: pointer; }
+  html.editing-page .bar button { background: #ff3b6b; }
+  .bar .status { opacity: .7; }
+  #sqs-site-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+</style>
+</head>
+<body class="squarespace-config sqs-frame-loaded">
+  <div class="bar">
+    <strong>Squarespace editor (simulated)</strong>
+    <button type="button" id="toggle-edit">Edit</button>
+    <span class="status" id="status">Not editing</span>
+  </div>
+  <iframe id="sqs-site-frame" src="/svg-test-page-motionpath.html"></iframe>
+  <script>
+    var btn = document.getElementById("toggle-edit");
+    var status = document.getElementById("status");
+    var frame = document.getElementById("sqs-site-frame");
+    btn.addEventListener("click", function () {
+      var editing = !document.documentElement.classList.contains("editing-page");
+      document.documentElement.classList.toggle("editing-page", editing);
+      frame.contentDocument.body.classList.toggle("sqs-edit-mode-active", editing);
+      frame.contentDocument.body.classList.toggle("sqs-is-page-editing", editing);
+      btn.textContent = editing ? "Exit" : "Edit";
+      status.textContent = editing ? "Edit mode" : "Not editing";
+    });
+  </script>
+</body>
+</html>
