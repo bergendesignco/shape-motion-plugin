@@ -10,8 +10,10 @@
 - [ ] **Separate mobile animation settings.** Paths are in pixels and the mobile layout places blocks
       differently, so mobile needs its own settings: its own path plus duration, ease, playback and so on,
       or at least "turn it off on mobile". Probably a `CONFIG.mobile` block of overrides applied with
-      `gsap.matchMedia()` at Squarespace's 767px breakpoint, with the panel switching to the mobile
-      settings when the window is that narrow.
+      `gsap.matchMedia()` at Squarespace's 767px breakpoint on the live site. In the editor, the site
+      `<body>` switches `sqs-device-view-desktop` → `sqs-device-view-phone` in mobile view: watch that
+      class to swap settings, switch the panel to the mobile settings, and rebuild the editor overlay.
+      Add a device toggle to `sim/config/` for testing.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site

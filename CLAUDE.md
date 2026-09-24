@@ -39,7 +39,11 @@ That's a separate project: read it for reference only, don't change or couple to
 - The site's `<html>` has `data-authenticated-account` inside the editor, and it's missing from the
   public saved page. It means logged in: checked on the real site, where the editor panel
   doesn't show for logged-out visitors (2026-09-24).
-- `sim/config/index.html` reproduces this locally.
+- Device preview: the site's `<body>` has `sqs-device-view-desktop`, which switches to
+  `sqs-device-view-phone` when the editor is in mobile view (seen by the user on the real editor,
+  2026-09-24). Use it for mobile settings inside the editor; on the live site use a media query / `gsap.matchMedia()`.
+  Switching views re-lays out the page, so the editor overlay (pinned at creation) has to be rebuilt.
+- `sim/config/index.html` reproduces this locally (Edit mode only so far, no device toggle).
 
 ## MotionPathHelper gotchas (checked against the 3.14.1 source)
 - `helper.kill()` also reverts its tween, so rebuild the tween after killing it.
