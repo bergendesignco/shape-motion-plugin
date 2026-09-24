@@ -6,6 +6,8 @@
     - the site loads in iframe#sqs-site-frame (same origin)
     - Edit mode adds "editing-page" to the outer <html> and
       "sqs-edit-mode-active sqs-is-page-editing" to the site's <body>
+    - Device view: the site's <body> has "sqs-device-view-desktop" or "sqs-device-view-phone",
+      and the phone view narrows the frame
   Open: http://localhost:8765/sim/config/  (run build-test-page.py first)
 -->
 <html lang="en">
@@ -19,7 +21,8 @@
   .bar button { padding: 6px 14px; border: 0; border-radius: 16px; background: #111; color: #fff; cursor: pointer; }
   html.editing-page .bar button { background: #ff3b6b; }
   .bar .status { opacity: .7; }
-  #sqs-site-frame { flex: 1; width: 100%; border: 0; background: #fff; }
+  #sqs-site-frame { flex: 1; width: 100%; border: 0; background: #fff; margin: 0 auto; }
+  html.phone-view #sqs-site-frame { width: 375px; flex: 0 0 auto; height: calc(100% - 50px); }
 </style>
 </head>
 <body class="squarespace-config sqs-frame-loaded">
@@ -27,6 +30,7 @@
     <strong>Squarespace editor (simulated)</strong>
     <button type="button" id="toggle-edit">Edit</button>
     <span class="status" id="status">Not editing</span>
+    <button type="button" id="toggle-device">Phone view</button>
   </div>
   <iframe id="sqs-site-frame" src="/svg-test-page-motionpath.html"></iframe>
   <script>
@@ -41,6 +45,17 @@
       btn.textContent = editing ? "Exit" : "Edit";
       status.textContent = editing ? "Edit mode" : "Not editing";
     });
+
+    var deviceBtn = document.getElementById("toggle-device");
+    function setDevice(phone) {
+      document.documentElement.classList.toggle("phone-view", phone);
+      var b = frame.contentDocument.body;
+      b.classList.toggle("sqs-device-view-phone", phone);
+      b.classList.toggle("sqs-device-view-desktop", !phone);
+      deviceBtn.textContent = phone ? "Desktop view" : "Phone view";
+    }
+    frame.addEventListener("load", function () { setDevice(document.documentElement.classList.contains("phone-view")); });
+    deviceBtn.addEventListener("click", function () { setDevice(!document.documentElement.classList.contains("phone-view")); });
   </script>
 </body>
 </html>

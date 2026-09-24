@@ -7,13 +7,15 @@
 - [x] **Editor only for the site owner, never on the live page.** Shows only inside the Squarespace
       editor frame or with `data-authenticated-account`, and `?mph` still forces it. Checked on the real
       site (2026-09-24).
+- [x] **Off on mobile by default.** `CONFIG.mobile` (panel: "Run on mobile"). It uses the editor's device-view class
+      and the 767px media query on the live site. Tested in `sim/config/` and at live widths.
 - [ ] **Separate mobile animation settings.** Paths are in pixels and the mobile layout places blocks
       differently, so mobile needs its own settings: its own path plus duration, ease, playback and so on,
-      or at least "turn it off on mobile". Probably a `CONFIG.mobile` block of overrides applied with
+      (turning it off on mobile is done). Probably a `CONFIG.mobile` block of overrides applied with
       `gsap.matchMedia()` at Squarespace's 767px breakpoint on the live site. In the editor, the site
       `<body>` switches `sqs-device-view-desktop` → `sqs-device-view-phone` in mobile view: watch that
-      class to swap settings, switch the panel to the mobile settings, and rebuild the editor overlay.
-      Add a device toggle to `sim/config/` for testing.
+      class to swap settings and switch the panel to the mobile settings. Restart-on-view-change and the
+      sim's device toggle already exist.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site

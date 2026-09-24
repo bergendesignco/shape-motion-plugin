@@ -41,9 +41,13 @@ That's a separate project: read it for reference only, don't change or couple to
   doesn't show for logged-out visitors (2026-09-24).
 - Device preview: the site's `<body>` has `sqs-device-view-desktop`, which switches to
   `sqs-device-view-phone` when the editor is in mobile view (seen by the user on the real editor,
-  2026-09-24). Use it for mobile settings inside the editor; on the live site use a media query / `gsap.matchMedia()`.
+  2026-09-24). The class exists only in the editor (missing from the live saved page), so the snippet
+  trusts it when present and falls back to `(max-width: 767px)` on the live site. Don't use width
+  inside the editor: the frame can be under 767px in desktop view.
   Switching views re-lays out the page, so the editor overlay (pinned at creation) has to be rebuilt.
-- `sim/config/index.html` reproduces this locally (Edit mode only so far, no device toggle).
+- `sim/config/index.html` reproduces this locally (Edit and Phone view toggles).
+- Browser pane gotcha: the pane is ~733px wide, which counts as phone on the live test page. Use
+  `resize_window` at 1100px width to test desktop.
 
 ## MotionPathHelper gotchas (checked against the 3.14.1 source)
 - `helper.kill()` also reverts its tween, so rebuild the tween after killing it.

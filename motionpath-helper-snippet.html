@@ -44,7 +44,8 @@
     "home": "start",
     "autoRotate": false,
     "rotateOffset": 0,
-    "anchor": "0% 0%"
+    "anchor": "0% 0%",
+    "mobile": false
   };
   // path         pixels, M0,0 = the block's spot in the Squarespace layout
   // playback     "loop" (restart at the start) | "yoyo" (back and forth) | "once"
@@ -53,6 +54,8 @@
   //              "end"   = shape begins at the far end of the path and travels INTO its layout spot
   // autoRotate   turn to face the direction of travel (rotateOffset = extra degrees)
   // anchor       point on the shape that rides the path, also the rotation pivot
+  // mobile       false = shape stays still on phones (default), true = animate on phones too
+  //              (same settings as desktop for now)
 
   var SHAPE_SELECTOR = '[data-sqsp-block="shape"]';
 
@@ -98,6 +101,17 @@
     return document.documentElement.hasAttribute("data-authenticated-account");
   }
 
+  // Phone layout. In the editor, trust its device view class (sqs-device-view-desktop / -phone),
+  // since the frame can be narrow in desktop view when side panels are open. On the live site
+  // (no class), go by Squarespace's mobile breakpoint.
+  var PHONE_QUERY = window.matchMedia("(max-width: 767px)");
+  function isPhone() {
+    var c = document.body.classList;
+    if (c.contains("sqs-device-view-phone")) return true;
+    if (c.contains("sqs-device-view-desktop")) return false;
+    return PHONE_QUERY.matches;
+  }
+
   function wantEditor() {
     if (/[?&]mph\b/.test(location.search)) return true;
     return SHOW_EDITOR && (inSquarespaceEditor() || isLoggedIn());
@@ -110,6 +124,7 @@
 
   function start() {
     if (running || isEditing()) return;
+    if (isPhone() && !CONFIG.mobile) return; // off on phones unless turned on
     // Editor pins its overlay to the block's page position, so wait for layout to settle.
     if (wantEditor() && document.readyState !== "complete") {
       if (!waitingForLoad) {
@@ -144,15 +159,22 @@
     }
     gsap.registerPlugin(MotionPathPlugin);
 
-    // Pause while Squarespace's Edit mode is on, resume when it's off.
-    new MutationObserver(function () {
-      if (isEditing()) stop();
-      else if (!running) start();
-    }).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    // Restart whenever Edit mode or the device view (desktop/phone) changes. Restarting also
+    // rebuilds the editor overlay, which is pinned to the layout it was created in.
+    var lastState = null;
+    function refresh() {
+      var state = isEditing() + "|" + isPhone();
+      if (state === lastState) return;
+      lastState = state;
+      stop();
+      start();
+    }
+    new MutationObserver(refresh).observe(document.body, { attributes: true, attributeFilter: ["class"] });
+    PHONE_QUERY.addEventListener("change", refresh);
 
-    start();
+    refresh();
 
-    window.shapeMotionPath = { start: start, stop: stop, isEditing: isEditing, wantEditor: wantEditor };
+    window.shapeMotionPath = { start: start, stop: stop, refresh: refresh, isEditing: isEditing, isPhone: isPhone, wantEditor: wantEditor };
   }
 
   /* ---------------- editor (dev only) ---------------- */
@@ -293,6 +315,12 @@
     rot.checked = cfg.autoRotate;
     rot.addEventListener("change", function () { cfg.autoRotate = rot.checked; rebuild(); });
     row("Auto-rotate", rot, "Turn to face the direction of travel");
+
+    var mob = document.createElement("input");
+    mob.type = "checkbox";
+    mob.checked = cfg.mobile;
+    mob.addEventListener("change", function () { cfg.mobile = mob.checked; writeOutput(); });
+    row("Run on mobile", mob, "Off = the shape stays still on phones. On = same animation on phones.");
     slider("Rotate offset", "rotateOffset", -180, 180, 5, function (v) { return v + "°"; });
 
     var grid = document.createElement("span");
