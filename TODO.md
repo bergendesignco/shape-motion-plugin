@@ -17,7 +17,7 @@ The big picture and order are in [ROADMAP.md](ROADMAP.md). Save research: [docs/
       Tested in `sim/config/` and at live widths. Approved by the user (2026-09-24).
 - [ ] **Rethink panel controls and wording.** The user isn't sold on the current controls/labels
       (2026-09-24). Revisit layout, naming and grouping once the feature set settles.
-- [ ] **CDN + save straight to the site (next).** Plugin on jsDelivr from this repo. Settings saved as
+- [x] **CDN + save straight to the site.** Released v0.1.0; saving 2 animations on 2 blocks verified on the demo site (2026-09-25). Plugin on jsDelivr from this repo. Settings saved as
       marked JSON tags to the page header injection (page elements) or site-wide injection
       (header/footer elements). Endpoints and safety rules: `docs/squarespace-saving.md`.
 - [ ] **Scroll triggers (after CDN/saving and detection).** Per-layout `trigger`: `"load"` (default,
