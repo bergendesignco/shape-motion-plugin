@@ -48,12 +48,20 @@
 
   /* ---------------- saving (docs/squarespace-saving.md) ---------------- */
 
+  // CSRF token, re-read before every request. Same order as the schema extension:
+  // page context, then <meta name="crumb">, then the crumb cookie.
   function getCrumb() {
     var ctx = window.Static && window.Static.SQUARESPACE_CONTEXT;
     if (ctx && ctx.crumb) return ctx.crumb;
+    var meta = document.querySelector('meta[name="crumb"]');
+    if (meta && meta.content) return meta.content;
     var m = document.cookie.match(/(?:^|;\s*)crumb=([^;]*)/);
     return m ? decodeURIComponent(m[1]) : null;
   }
+
+  function isId(v) { return typeof v === "string" && /^[a-f0-9]{24}$/i.test(v); }
+  function isObj(v) { return !!v && typeof v === "object" && !Array.isArray(v); }
+  function normPath(p) { return (p || "/").replace(/\/+$/, "") || "/"; }
 
   function requestJson(url, opts) {
     return fetch(url, opts).then(function (res) {
@@ -69,40 +77,86 @@
     });
   }
 
+  // This page's collection ID. Source of truth is ?format=json -> collection.id (as in the schema
+  // extension); the page's own Static context is only a fallback.
+  function resolvePageId() {
+    var url = location.pathname + (location.search ? location.search + "&" : "?") + "format=json";
+    return fetch(url, { credentials: "same-origin", cache: "no-store", headers: { Accept: "application/json" } })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .catch(function () { return null; })
+      .then(function (data) {
+        var id = data && data.collection && data.collection.id;
+        if (isId(id)) return id;
+        var fallback = SM.pageId();
+        if (isId(fallback)) return fallback;
+        throw new Error("Couldn't find this page's ID.");
+      });
+  }
+
+  // GET the page settings and normalize them exactly like the schema extension does.
+  // Real responses are FLAT (no collectionData wrapper) and have `id` but NOT `collectionId`.
+  // The save MUST send both: without collectionId, Squarespace creates a brand-new page.
   function getPageSettings(pageId) {
     var crumb = getCrumb();
     if (!crumb) return Promise.reject(new Error("No Squarespace session token (crumb) found. Are you logged in?"));
     return requestJson("/api/commondata/GetCollectionSettings?collectionId=" + encodeURIComponent(pageId), {
       method: "GET",
       credentials: "same-origin",
-      headers: { Accept: "application/json, text/plain, */*", "x-csrf-token": crumb }
+      cache: "no-store",
+      headers: { Accept: "application/json", "x-csrf-token": crumb }
     }).then(function (data) {
-      // Accept wrapped ({ collectionData, memberAreaData }) or flat responses.
-      var wrapped = data && data.collectionData ? data : { collectionData: data, memberAreaData: {} };
-      var cd = wrapped.collectionData || {};
-      var id = cd.id || cd.collectionId;
-      if (id !== pageId) throw new Error("Page settings didn't match this page (" + id + " vs " + pageId + "). Nothing was saved.");
-      if (!cd.websiteId) throw new Error("Page settings look incomplete (no websiteId). Nothing was saved.");
-      return wrapped;
+      if (!isObj(data)) throw new Error("Page settings came back in an unexpected shape. Nothing was saved.");
+      var normalized;
+      if (isObj(data.collectionData)) {
+        normalized = {};
+        Object.keys(data).forEach(function (k) { normalized[k] = data[k]; });
+        normalized.memberAreaData = isObj(data.memberAreaData) ? data.memberAreaData : {};
+      } else {
+        var flatId = data.id || data.collectionId;
+        var hasKeys = ["id", "websiteId", "title", "urlId", "typeName"].every(function (k) { return k in data; });
+        if (!isId(flatId) || !hasKeys) throw new Error("Page settings are missing expected fields. Nothing was saved.");
+        normalized = { collectionData: data, memberAreaData: {} };
+      }
+      var cd = {};
+      Object.keys(normalized.collectionData).forEach(function (k) { cd[k] = normalized.collectionData[k]; });
+      if (!cd.collectionId && isId(cd.id)) cd.collectionId = cd.id;
+      if (!cd.id && isId(cd.collectionId)) cd.id = cd.collectionId;
+      if (!isId(cd.id) || cd.id !== pageId || cd.collectionId !== pageId) {
+        throw new Error("Page settings didn't match this page (" + (cd.id || "missing") + " vs " + pageId + "). Nothing was saved.");
+      }
+      if (!cd.websiteId) throw new Error("Page settings are missing websiteId. Nothing was saved.");
+      // Same page as the one on screen? (The homepage can be served from "/" and its own URL.)
+      if (cd.fullUrl && !cd.homepage && normPath(cd.fullUrl) !== normPath(location.pathname)) {
+        throw new Error("Page settings are for " + cd.fullUrl + ", not this page. Nothing was saved.");
+      }
+      normalized.collectionData = cd;
+      return normalized;
     });
   }
 
   function savePageHeader(pageId, nextHeader) {
-    // Always a fresh GET right before the POST, then merge only headerInjectCode.
+    // Always a fresh GET right before the POST. Send back everything from the GET, with both ids,
+    // and change ONLY headerInjectCode.
     return getPageSettings(pageId).then(function (current) {
       var previous = current.collectionData.headerInjectCode || "";
-      var collectionData = {};
-      Object.keys(current.collectionData).forEach(function (k) { collectionData[k] = current.collectionData[k]; });
-      collectionData.headerInjectCode = typeof nextHeader === "function" ? nextHeader(previous) : nextHeader;
+      var body = {};
+      Object.keys(current).forEach(function (k) { body[k] = current[k]; });
+      var cd = {};
+      Object.keys(current.collectionData).forEach(function (k) { cd[k] = current.collectionData[k]; });
+      cd.headerInjectCode = String(typeof nextHeader === "function" ? nextHeader(previous) : nextHeader);
+      body.collectionData = cd;
+      body.memberAreaData = current.memberAreaData || {};
+      var crumb = getCrumb();
+      if (!crumb) throw new Error("No Squarespace session token (crumb) found. Are you logged in?");
       return requestJson("/api/commondata/SaveCollectionSettings", {
         method: "POST",
         credentials: "same-origin",
         headers: {
           Accept: "application/json, text/plain, */*",
           "Content-Type": "application/json; charset=UTF-8",
-          "x-csrf-token": getCrumb()
+          "x-csrf-token": crumb
         },
-        body: JSON.stringify({ collectionData: collectionData, memberAreaData: current.memberAreaData || {} })
+        body: JSON.stringify(body)
       }).then(function () { return previous; });
     });
   }
@@ -121,7 +175,7 @@
     return current.trim() ? current.replace(/\s+$/, "") + "\n\n" + block : block;
   }
 
-  function undoKey(pageId) { return "shape-motion-undo:" + pageId; }
+  function undoKey() { return "shape-motion-undo:" + location.pathname; }
 
   /* ---------------- small DOM helpers ---------------- */
 
@@ -226,7 +280,6 @@
       statusEl = make("span", "smo-status");
       bar.appendChild(brand);
       bar.appendChild(statusEl);
-      var pageId = SM.pageId();
 
       var missing = Object.keys(pageElements()).filter(function (id) { return !document.getElementById(id); });
       if (missing.length) {
@@ -239,16 +292,18 @@
       }
 
       var saveBtn = button("Save", function (btn) {
-        if (!pageId) { state.status = "Couldn't find this page's ID. Use Copy instead."; showStatus(); return; }
         syncPath();
         var count = Object.keys(pageElements()).length;
         if (!window.confirm("Save animations for " + count + " element" + (count === 1 ? "" : "s") +
           " to this page's Header Code Injection?\n\nOnly the Shape Motion block is replaced. Anything else in that box is kept.")) return;
         btn.disabled = true;
         state.status = "Saving…"; showStatus();
-        savePageHeader(pageId, function (previous) { return replaceManagedBlock(previous, managedBlock()); })
+        resolvePageId()
+          .then(function (id) {
+            return savePageHeader(id, function (previous) { return replaceManagedBlock(previous, managedBlock()); });
+          })
           .then(function (previous) {
-            try { sessionStorage.setItem(undoKey(pageId), previous); } catch (e) { /* undo unavailable */ }
+            try { sessionStorage.setItem(undoKey(), previous); } catch (e) { /* undo unavailable */ }
             state.dirty = false;
             state.status = "Saved ✓";
           })
@@ -260,17 +315,17 @@
       bar.appendChild(saveBtn);
 
       function hasUndo() {
-        try { return sessionStorage.getItem(undoKey(pageId)) !== null; } catch (e) { return false; }
+        try { return sessionStorage.getItem(undoKey()) !== null; } catch (e) { return false; }
       }
       var undoBtn = button("Undo save", function (btn) {
         var previous;
-        try { previous = sessionStorage.getItem(undoKey(pageId)); } catch (e) { previous = null; }
+        try { previous = sessionStorage.getItem(undoKey()); } catch (e) { previous = null; }
         if (previous === null) return;
         if (!window.confirm("Put this page's Header Code Injection back to how it was before your last save? The page will reload.")) return;
         btn.disabled = true;
         state.status = "Undoing…"; showStatus();
-        savePageHeader(pageId, previous).then(function () {
-          try { sessionStorage.removeItem(undoKey(pageId)); } catch (e) { /* ignore */ }
+        resolvePageId().then(function (id) { return savePageHeader(id, previous); }).then(function () {
+          try { sessionStorage.removeItem(undoKey()); } catch (e) { /* ignore */ }
           state.dirty = false;
           location.reload();
         }).catch(function (err) {

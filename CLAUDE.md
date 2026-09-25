@@ -23,7 +23,12 @@ See README.md for usage and the CONFIG reference.
 - Direction and order: ROADMAP.md. Saving to Squarespace: docs/squarespace-saving.md (GET→merge→POST,
   marker-safe, never post partial objects).
 - The GSAP and schema Chrome extensions are **reference only**: read their docs/code for Squarespace
-  knowledge, never import from them or change them.
+  knowledge, never import from them or change them. **Be thorough:** read their actual code, decision
+  logs (`_project/DECISIONS.md`), findings and raw captures (`research and planning docs/_raw-data/`),
+  not just summary docs. Summary docs missed the `collectionId` rule and a save created a stray page.
+- **Page save rule:** the POST's `collectionData` must carry BOTH `id` and `collectionId`. The GET is flat
+  and lacks `collectionId`, and without it Squarespace creates a NEW page. The dev-server mock enforces
+  this.
 
 ## Workflow
 - Edit `src/*.js`, run `python3 build-test-page.py`, and serve with `python3 dev-server.py` (port 8765,

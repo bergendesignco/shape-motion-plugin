@@ -6,8 +6,10 @@
 - Serves the repo root, like `python3 -m http.server`.
 - Sets a `crumb` cookie, like a logged-in Squarespace session.
 - Mocks GetCollectionSettings / SaveCollectionSettings (docs/squarespace-saving.md) for the test
-  page's collection ID. It rejects the mistakes that cause data loss on the real site: missing
-  wrapper, wrong ID, missing fields, a changed SEO title.
+  page's collection ID. GETs are flat and lack `collectionId`, like the real API. It rejects the
+  mistakes that cause damage on the real site: a save without `collectionId` (real Squarespace creates
+  a NEW page, seen 2026-09-25), missing wrapper, wrong ID, missing fields, a changed SEO title.
+- Serves `?format=json` for the test page (collection.id), the page-ID source of truth.
 - Injects the saved headerInjectCode into <head> of svg-test-page-motionpath.html, the way
   Squarespace outputs Page Header Code Injection, so a save and reload round-trips.
 
@@ -27,13 +29,16 @@ TEST_PAGE = "/svg-test-page-motionpath.html"
 
 
 def default_page():
+    # Shaped like a REAL GetCollectionSettings response: flat, has `id`, NO `collectionId`
+    # (see schema extension raw captures). The save must add collectionId back.
     return {
         "id": PAGE_ID,
-        "collectionId": PAGE_ID,
         "websiteId": "699e15bd0dd27249efbe5e18",
         "title": "SVG Examples",
         "urlId": "svg-examples",
-        "fullUrl": "/svg-examples",
+        "typeName": "page",
+        "homepage": False,
+        "fullUrl": TEST_PAGE,
         "seoTitle": "KEEP ME - seo title",
         "seoDescription": "KEEP ME - seo description",
         "headerInjectCode": "<!-- someone else's header code, must survive saves -->\n<meta name=\"keep-me\" content=\"1\">",
@@ -81,7 +86,11 @@ class Handler(SimpleHTTPRequestHandler):
             if cid != PAGE_ID:
                 return self.send_json(404, {"error": "no such collection"})
             state = load()
-            return self.send_json(200, {"collectionData": state["collectionData"], "memberAreaData": state["memberAreaData"]})
+            data = dict(state["collectionData"])
+            data.pop("collectionId", None)  # real GETs don't include it
+            return self.send_json(200, data)  # real GETs are flat
+        if url.path == TEST_PAGE and "format=json" in url.query:
+            return self.send_json(200, {"collection": {"id": PAGE_ID, "fullUrl": TEST_PAGE}})
         if url.path == TEST_PAGE:
             path = os.path.join(ROOT, TEST_PAGE.lstrip("/"))
             with open(path, encoding="utf-8") as f:
@@ -112,14 +121,21 @@ class Handler(SimpleHTTPRequestHandler):
         cd = payload.get("collectionData")
         if not isinstance(cd, dict) or "memberAreaData" not in payload:
             return self.send_json(400, {"error": "body must be { collectionData, memberAreaData }"})
-        if cd.get("id") != PAGE_ID:
-            return self.send_json(400, {"error": "collectionData.id mismatch"})
-        missing = [k for k in state["collectionData"] if k not in cd]
+        if not cd.get("collectionId"):
+            state.setdefault("pagesCreated", 0)
+            state["pagesCreated"] += 1
+            save(state)
+            return self.send_json(400, {"error": "no collectionData.collectionId - real Squarespace would CREATE A NEW PAGE"})
+        if cd.get("id") != PAGE_ID or cd.get("collectionId") != PAGE_ID:
+            return self.send_json(400, {"error": "collectionData.id/collectionId mismatch"})
+        missing = [k for k in state["collectionData"] if k not in cd and k != "collectionId"]
         if missing:
             return self.send_json(400, {"error": "partial object would wipe fields: " + ", ".join(missing)})
         for k in ("seoTitle", "seoDescription", "urlId"):
             if cd.get(k) != state["collectionData"].get(k):
                 return self.send_json(400, {"error": f"{k} changed - data loss"})
+        cd = dict(cd)
+        cd.pop("collectionId", None)
         state["collectionData"] = cd
         state["memberAreaData"] = payload["memberAreaData"]
         state["saves"] = state.get("saves", 0) + 1

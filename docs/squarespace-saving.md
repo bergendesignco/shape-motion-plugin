@@ -2,6 +2,9 @@
 
 Research notes for saving animation settings straight to the site (no copy/paste).
 
+> **Lesson (2026-09-25):** read the source extensions' *code* and raw captures, not just their docs.
+> The docs left out the `collectionId` step, and skipping it created a stray page.
+
 Sources: read-only review of two separate projects, the GSAP extension
 (`~/Documents/chrome-extensions/gsap-sqsp-extension`, `src/v2/squarespace/api-engine.js`,
 `docs/squarespace-dom-reference.md`) and the schema generator extension
@@ -25,9 +28,12 @@ plugin reimplements what it needs.
 **Read**
 ```
 GET /api/commondata/GetCollectionSettings?collectionId={id}
-Accept: application/json, text/plain, */*
+Accept: application/json
 x-csrf-token: {crumb}
+cache: no-store
 ```
+The real response is **flat** (no `collectionData` wrapper) and has `id` but **no `collectionId`**
+(schema extension raw capture `get-collection-settings-full-response-json`).
 
 **Write**
 ```
@@ -37,6 +43,16 @@ x-csrf-token: {crumb}
 Body: { "collectionData": { ...every field from the GET..., "headerInjectCode": "…" }, "memberAreaData": {…from GET or {}} }
 ```
 
+- ⛔ **The POST must include BOTH `collectionData.id` and `collectionData.collectionId`** (same value).
+  The GET doesn't return `collectionId`, so copy it from `id`. **Without it, Squarespace creates a
+  brand-new page** (happened on the demo site, 2026-09-25, with v0.1 test build `03ccacf`). The schema
+  extension's docs don't say this, but its code does it (`getPageSettings` / `preparePageSaveContext`
+  in `extension/lib/squarespace-api.js`), and its confirmed POST capture includes `collectionId`.
+- Normalize like the schema extension: accept wrapped or flat. For flat, require `id`, `websiteId`,
+  `title`, `urlId`, `typeName`. Fill `id`↔`collectionId`. Hard-fail unless both equal the page ID and
+  `websiteId` exists.
+- POST body = every top-level key from the (normalized) GET + `collectionData` (with the one change) +
+  `memberAreaData` (`{}` if absent).
 - **Always GET → merge → POST.** The POST saves the whole page object. Posting only
   `headerInjectCode` wipes the SEO title, description, URL and so on. **Data loss.**
 - The body must be wrapped in `{ collectionData, memberAreaData }`. A flat object is rejected.
@@ -58,12 +74,13 @@ POST body: application/x-www-form-urlencoded with ALL fields:
 
 ## Identity and auth, from inside the site (where our script runs)
 
-- **Page ID:** `Static.SQUARESPACE_CONTEXT.collection.id`. It matches `<body id="collection-{id}">`
-  (verified on `svg-test-page.html`). The editor reloads the iframe when you switch pages, so it's
-  always fresh.
-- **CSRF token (crumb):** `Static.SQUARESPACE_CONTEXT.crumb` if present, otherwise the `crumb` cookie
-  (`document.cookie`, same origin inside the editor iframe). Read it again right before **every** save,
-  because stale crumbs give a 403.
+- **Page ID:** `?format=json` on the current page URL → `collection.id` (the schema extension's source
+  of truth, DEC-025). `Static.SQUARESPACE_CONTEXT.collection.id` / `<body id="collection-{id}">` is only
+  a fallback. Before writing, also check the GET's `fullUrl` matches the current path (skip for
+  the homepage).
+- **CSRF token:** `Static.SQUARESPACE_CONTEXT.crumb`, then `<meta name="crumb">`, then the `crumb`
+  cookie.
+  Read it again right before **every** request, because stale crumbs give a 403.
 - Only logged-in editors can save, which matches when the editor panel shows.
 
 ## Write-safety rules (adopted from both extensions)
