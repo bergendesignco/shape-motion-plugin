@@ -34,7 +34,9 @@
   var ANCHORS = ["0% 0%", "50% 0%", "100% 0%", "0% 50%", "50% 50%", "100% 50%", "0% 100%", "50% 100%", "100% 100%"];
 
   // Editor state that survives the UI being rebuilt on every restart (view switches, edit mode).
-  var state = { selectedId: null, panelPos: null, dirty: false, status: "", testing: false };
+  var state = { selectedId: null, panelPos: null, dirty: false, status: "", testing: false, previewPos: 0 };
+  // The path-editing preview, so drags can put it back where it was (see pointerup below).
+  var preview = { tween: null, still: false };
 
   function pageElements() { return SM.data.page.elements; }
 
@@ -188,6 +190,15 @@
 
   function undoKey() { return "shape-motion-undo:" + location.pathname; }
 
+  // Copied animation (desktop + mobile settings). Kept for the browser tab, so it works across pages.
+  var CLIP_KEY = "shape-motion-clipboard";
+  function readClipboard() {
+    try { var v = sessionStorage.getItem(CLIP_KEY); return v ? JSON.parse(v) : null; } catch (e) { return null; }
+  }
+  function writeClipboard(fromId, cfg) {
+    try { sessionStorage.setItem(CLIP_KEY, JSON.stringify({ from: fromId, page: location.pathname, cfg: cfg })); } catch (e) { /* unavailable */ }
+  }
+
   /* ---------------- small DOM helpers ---------------- */
 
   function make(tag, cls, text) {
@@ -272,6 +283,7 @@
           }
           state.selectedId = el.id;
           state.testing = false;
+          state.previewPos = 0;
           state.panelPos = null; // open next to the element
           SM.restart();
         });
@@ -292,86 +304,96 @@
       window.addEventListener("resize", onResize);
       cleanups.push(function () { window.removeEventListener("resize", onResize); });
 
-      /* ---- save bar ---- */
-      var bar = make("div", "smo-bar");
-      var brand = make("strong", null, "Shape Motion");
-      statusEl = make("span", "smo-status");
-      bar.appendChild(brand);
-      bar.appendChild(statusEl);
-
+      /* ---- save controls: in the open panel's footer, or a small bar when no panel is open ---- */
       var missing = Object.keys(pageElements()).filter(function (id) { return !document.getElementById(id); });
-      if (missing.length) {
-        bar.appendChild(button("Clean up " + missing.length + " missing", function () {
-          if (!window.confirm(missing.length + " saved animation(s) point to elements that aren't on this page anymore. Remove them? (Saved when you click Save.)")) return;
-          missing.forEach(function (id) { delete pageElements()[id]; });
-          markDirty();
-          SM.restart();
-        }, "is-quiet"));
-      }
-
-      var saveBtn = button("Save", function (btn) {
-        syncPath();
-        var count = Object.keys(pageElements()).length;
-        if (!window.confirm("Save animations for " + count + " element" + (count === 1 ? "" : "s") +
-          " to this page's Header Code Injection?\n\nOnly the Shape Motion block is replaced. Anything else in that box is kept.")) return;
-        btn.disabled = true;
-        state.status = "Saving…"; showStatus();
-        resolvePageId()
-          .then(function (id) {
-            return savePageHeader(id, function (previous) { return replaceManagedBlock(previous, managedBlock()); });
-          })
-          .then(function (previous) {
-            try { sessionStorage.setItem(undoKey(), previous); } catch (e) { /* undo unavailable */ }
-            state.dirty = false;
-            state.status = "Saved ✓";
-          })
-          .catch(function (err) {
-            state.status = "Save failed: " + err.message.replace(/\.?$/, ".") + " Nothing was changed. Use Copy as a fallback.";
-          })
-          .then(function () { btn.disabled = false; showStatus(); undoBtn.hidden = !hasUndo(); });
-      }, "is-primary");
-      bar.appendChild(saveBtn);
 
       function hasUndo() {
         try { return sessionStorage.getItem(undoKey()) !== null; } catch (e) { return false; }
       }
-      var undoBtn = button("Undo save", function (btn) {
-        var previous;
-        try { previous = sessionStorage.getItem(undoKey()); } catch (e) { previous = null; }
-        if (previous === null) return;
-        if (!window.confirm("Put this page's Header Code Injection back to how it was before your last save? The page will reload.")) return;
-        btn.disabled = true;
-        state.status = "Undoing…"; showStatus();
-        resolvePageId().then(function (id) { return savePageHeader(id, previous); }).then(function () {
-          try { sessionStorage.removeItem(undoKey()); } catch (e) { /* ignore */ }
-          state.dirty = false;
-          location.reload();
-        }).catch(function (err) {
-          state.status = "Undo failed: " + err.message;
-          btn.disabled = false;
-          showStatus();
-        });
-      });
-      undoBtn.hidden = !hasUndo();
-      bar.appendChild(undoBtn);
 
-      bar.appendChild(button("Copy", function (btn) {
-        syncPath();
-        output.value = managedBlock();
-        output.hidden = false;
-        var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = "Copy"; }, 1200); };
-        if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(output.value).then(done);
-        else { output.select(); document.execCommand("copy"); done(); }
-      }));
-      output = make("textarea");
-      output.readOnly = true;
-      output.rows = 5;
-      output.hidden = true;
-      output.title = "Paste into Page Settings > Advanced > Page Header Code Injection";
-      bar.appendChild(output);
-      document.body.appendChild(bar);
-      ui.push(bar);
-      showStatus();
+      function buildSaveArea(container) {
+        statusEl = make("span", "smo-status");
+        container.appendChild(statusEl);
+        var btns = make("div", "smo-save-buttons");
+        container.appendChild(btns);
+
+        if (missing.length) {
+          btns.appendChild(button("Clean up " + missing.length + " missing", function () {
+            if (!window.confirm(missing.length + " saved animation(s) point to elements that aren't on this page anymore. Remove them? (Saved when you click Save.)")) return;
+            missing.forEach(function (id) { delete pageElements()[id]; });
+            markDirty();
+            SM.restart();
+          }, "is-quiet"));
+        }
+
+        var undoBtn;
+        btns.appendChild(button("Save", function (btn) {
+          syncPath();
+          var count = Object.keys(pageElements()).length;
+          if (!window.confirm("Save animations for " + count + " element" + (count === 1 ? "" : "s") +
+            " to this page's Header Code Injection?\n\nOnly the Shape Motion block is replaced. Anything else in that box is kept.")) return;
+          btn.disabled = true;
+          state.status = "Saving…"; showStatus();
+          resolvePageId()
+            .then(function (id) {
+              return savePageHeader(id, function (previous) { return replaceManagedBlock(previous, managedBlock()); });
+            })
+            .then(function (previous) {
+              try { sessionStorage.setItem(undoKey(), previous); } catch (e) { /* undo unavailable */ }
+              state.dirty = false;
+              state.status = "Saved ✓";
+            })
+            .catch(function (err) {
+              state.status = "Save failed: " + err.message.replace(/\.?$/, ".") + " Nothing was changed. Use Copy code as a fallback.";
+            })
+            .then(function () { btn.disabled = false; showStatus(); undoBtn.hidden = !hasUndo(); });
+        }, "is-primary"));
+
+        undoBtn = button("Undo save", function (btn) {
+          var previous;
+          try { previous = sessionStorage.getItem(undoKey()); } catch (e) { previous = null; }
+          if (previous === null) return;
+          if (!window.confirm("Put this page's Header Code Injection back to how it was before your last save? The page will reload.")) return;
+          btn.disabled = true;
+          state.status = "Undoing…"; showStatus();
+          resolvePageId().then(function (id) { return savePageHeader(id, previous); }).then(function () {
+            try { sessionStorage.removeItem(undoKey()); } catch (e) { /* ignore */ }
+            state.dirty = false;
+            location.reload();
+          }).catch(function (err) {
+            state.status = "Undo failed: " + err.message;
+            btn.disabled = false;
+            showStatus();
+          });
+        });
+        undoBtn.hidden = !hasUndo();
+        btns.appendChild(undoBtn);
+
+        btns.appendChild(button("Copy code", function (btn) {
+          syncPath();
+          output.value = managedBlock();
+          output.hidden = false;
+          var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = "Copy code"; }, 1200); };
+          if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(output.value).then(done);
+          else { output.select(); document.execCommand("copy"); done(); }
+        }, "is-quiet"));
+        output = make("textarea");
+        output.readOnly = true;
+        output.rows = 5;
+        output.hidden = true;
+        output.title = "Manual fallback: paste into Page Settings > Advanced > Page Header Code Injection";
+        container.appendChild(output);
+        showStatus();
+      }
+
+      // No panel open: only show the bar when there's something to save, undo or clean up.
+      if (!(sel && selCfg) && (state.dirty || hasUndo() || missing.length)) {
+        var bar = make("div", "smo-bar");
+        bar.appendChild(make("strong", null, "Shape Motion"));
+        buildSaveArea(bar);
+        document.body.appendChild(bar);
+        ui.push(bar);
+      }
 
       /* ---- element panel ---- */
       if (sel && selCfg) buildPanel();
@@ -409,8 +431,18 @@
         tween = SM.buildTween(sel, cfg);
         var pos = layoutRect(sel);
         helper = window.MotionPathHelper.create(tween, { pathColor: "#ff3b6b", pathWidth: 3, pathOpacity: 0.9 });
-        // The helper always loops while editing; keep our pause between loops ("once" previews with a 1s pause).
-        tween.repeatDelay(cfg.playback === "once" ? 1 : cfg.repeatDelay);
+        // The helper forces the preview to loop forever. Only keep that for an always-on animation
+        // (page load + loop/back-and-forth); everything else holds still at the Preview position.
+        var trig = cfg.trigger || "load";
+        var alwaysOn = trig === "load" && cfg.playback !== "once";
+        if (alwaysOn) {
+          tween.repeat(-1).repeatDelay(cfg.repeatDelay).yoyo(cfg.playback === "yoyo");
+        } else {
+          tween.repeat(0).yoyo(false).pause();
+          tween.progress(state.previewPos || 0);
+        }
+        preview.tween = tween;
+        preview.still = !alwaysOn;
         // Draw the path from the anchor point instead of the block's top-left corner.
         var a = cfg.anchor.split(" ").map(parseFloat);
         var svg = document.querySelector("svg.motion-path-helper");
@@ -482,13 +514,32 @@
           note("This element stays in its normal spot on phones.");
         }
 
-        actions([button("Remove animation", function () {
+        var clip = readClipboard();
+        var manage = [button("Copy animation", function (btn) {
+          syncPath();
+          writeClipboard(sel.id, selCfg);
+          btn.textContent = "Copied ✓ (open another shape to paste)";
+        }, "is-quiet")];
+        if (clip && clip.cfg && !(clip.from === sel.id && clip.page === location.pathname)) {
+          manage.push(button("Paste animation", function () {
+            if (!window.confirm("Replace this shape's animation with the copied one? (Saved when you click Save.)")) return;
+            pageElements()[sel.id] = JSON.parse(JSON.stringify(clip.cfg));
+            markDirty();
+            SM.restart();
+          }, "is-quiet"));
+        }
+        manage.push(button("Remove animation", function () {
           if (!window.confirm("Remove the animation from this element? (Saved when you click Save.)")) return;
           delete pageElements()[sel.id];
           state.selectedId = null;
           markDirty();
           SM.restart();
-        }, "is-quiet")]);
+        }, "is-quiet"));
+        actions(manage);
+
+        var foot = make("div", "smo-foot");
+        panel.appendChild(foot);
+        buildSaveArea(foot);
 
         document.body.appendChild(panel);
         ui.push(panel);
@@ -612,6 +663,31 @@
           SM.restart(); // different trigger, different options
         }), "What starts the animation");
 
+        // Preview: scrub along the path, or play one pass (the path editor doesn't auto-play this).
+        var pwrap = make("span", "smo-slider");
+        var pinput = make("input");
+        pinput.type = "range"; pinput.min = 0; pinput.max = 1; pinput.step = 0.01; pinput.value = state.previewPos || 0;
+        var pval = make("em", null, Math.round((state.previewPos || 0) * 100) + "%");
+        pinput.addEventListener("input", function () {
+          state.previewPos = parseFloat(pinput.value);
+          pval.textContent = Math.round(state.previewPos * 100) + "%";
+          if (tween) tween.pause().progress(state.previewPos);
+        });
+        var play = button("▶", function () {
+          if (!tween) return;
+          if (trig === "load" || trig === "appear") {
+            // Plays as configured (playback, pause between); an always-on one keeps looping.
+            tween.repeat(cfg.playback === "once" ? 0 : -1).yoyo(cfg.playback === "yoyo").repeatDelay(cfg.repeatDelay);
+          }
+          tween.restart();
+        }, "smo-play");
+        play.title = "Play";
+        pwrap.appendChild(play);
+        pwrap.appendChild(pinput);
+        pwrap.appendChild(pval);
+        row(trig === "scroll" ? "Scroll position" : "Preview", pwrap,
+          trig === "scroll" ? "Where the shape is at each point of the scroll" : "Drag to scrub along the path, or play it");
+
         if (trig === "appear") {
           select("Starts when", "appearAt", [["top 85%", "Just visible"], ["top 70%", "A bit in"], ["top 50%", "Halfway up the screen"]],
             "How far the shape's spot has scrolled into view before it plays");
@@ -663,7 +739,6 @@
         var acts = [];
         if (trig !== "load") acts.push(button("Test trigger", function () { syncPath(); state.testing = true; SM.restart(); }, "is-primary"));
         actions(acts.concat([
-          button("Replay", function () { tween.restart(true); }),
           button("New A→B path", function () { rebuild(starterPath(sel, "open")); }),
           button("New loop path", function () { rebuild(starterPath(sel, "loop")); })
         ]));
@@ -677,6 +752,7 @@
           else if (tween) tween.revert();
           if (testStop) testStop();
           helper = tween = testStop = null;
+          preview.tween = null;
           cleanups.forEach(function (fn) { fn(); });
           ui.forEach(function (n) { n.remove(); });
           document.querySelectorAll(".smo-hover").forEach(function (n) { n.classList.remove("smo-hover"); });
@@ -685,9 +761,13 @@
     }
   };
 
-  // Mark path drags as unsaved changes (the helper doesn't tell us directly).
+  // Mark path drags as unsaved changes (the helper doesn't tell us directly). The helper also restarts
+  // the preview after every drag; put a still preview back where the Preview slider has it.
   document.addEventListener("pointerup", function (e) {
     if (e.target && e.target.closest && e.target.closest("svg.motion-path-helper")) {
+      if (preview.still && preview.tween) {
+        setTimeout(function () { preview.tween.pause().progress(state.previewPos || 0); }, 0);
+      }
       state.dirty = true;
       state.status = "";
       var s = document.querySelector(".smo-status");
@@ -713,6 +793,15 @@
     ".smo-badge[disabled]{opacity:.35;cursor:default;transform:none}",
     ".smo-hover{outline:2px dashed #ff3b6b!important;outline-offset:4px!important}",
     /* save bar */
+    ".smo-foot{display:flex;flex-direction:column;gap:6px;padding:10px 12px 12px;border-top:1px solid rgba(255,255,255,.12)}",
+    ".smo-save-buttons{display:flex;flex-wrap:wrap;gap:4px}",
+    ".smo-foot button,.smo-save-buttons button{all:unset;cursor:pointer;padding:5px 9px;border-radius:4px;background:rgba(255,255,255,.14)}",
+    ".smo-foot .is-primary{background:#ff3b6b}",
+    ".smo-foot .is-quiet{background:none;opacity:.65}",
+    ".smo-foot button[hidden]{display:none}",
+    ".smo-foot button[disabled]{opacity:.5;cursor:default}",
+    ".smo-foot textarea{width:100%;resize:vertical;padding:6px;border:0;border-radius:4px;background:#111;font:11px/1.35 ui-monospace,Menlo,monospace}",
+    ".smo-foot textarea[hidden]{display:none}",
     ".smo-bar{position:fixed;right:12px;bottom:12px;z-index:10003;display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:calc(100vw - 24px);padding:8px 10px;border-radius:10px;background:rgba(20,20,20,.92);box-shadow:0 6px 24px rgba(0,0,0,.25)}",
     ".smo-status{opacity:.8}",
     ".smo-status.is-dirty{color:#ffd166;opacity:1}",
@@ -733,7 +822,8 @@
     ".smo-note{margin:0;opacity:.7}",
     ".smo-row{display:grid;grid-template-columns:92px 1fr;align-items:center;gap:8px;margin:0}",
     ".smo-row>span:first-child{opacity:.75}",
-    ".smo-slider{display:flex;align-items:center;gap:6px}",
+    ".smo-row>*{min-width:0}",
+    ".smo-slider{display:flex;align-items:center;gap:6px;min-width:0}",
     ".smo-slider input{flex:1;min-width:0;accent-color:#ff3b6b}",
     ".smo-slider em{font-style:normal;flex:0 0 40px;text-align:right;opacity:.85}",
     ".smo-panel select{width:100%;padding:3px 4px;border-radius:4px;border:0;background:#333}",
@@ -742,6 +832,8 @@
     ".smo-anchor button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:3px;background:rgba(255,255,255,.18)}",
     ".smo-anchor button.is-active{background:#ff3b6b}",
     ".smo-actions{display:flex;flex-wrap:wrap;gap:4px}",
+    ".smo-play{all:unset;cursor:pointer;width:20px;height:20px;border-radius:50%;background:#ff3b6b;display:flex;align-items:center;justify-content:center;font-size:9px;flex:0 0 20px}",
+    ".smo-play+input+em{flex-basis:34px}",
     ".smo-actions .is-primary{background:#ff3b6b}",
     ".smo-testing{padding:6px 8px;border-radius:4px;background:rgba(255,59,107,.22);color:#ffc2d1}"
   ].join("\n");
