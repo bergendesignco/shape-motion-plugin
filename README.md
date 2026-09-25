@@ -45,7 +45,7 @@ Open a page in the Squarespace editor (not in Edit mode). Only you see the edito
    |---|---|---|
    | Page load | Plays right away (the default) | Duration, delay, playback, pause |
    | When it appears | Waits at the start of its path, plays when scrolled into view | Starts when (just visible / a bit in / halfway), Replay (first time / every time / reverse on scroll back) |
-   | Scroll-driven | Scrolling moves it along the path, backwards when scrolling up | Moves while (crossing the screen / up to the middle), Smoothing |
+   | Scroll-driven | Scrolling moves it along the path, backwards when scrolling up | Speed (1× = as fast as you scroll), Smoothing (lag) |
    | Hover | Plays while hovered | On leave: go back / finish the trip |
    | Click | Plays on click (pointer cursor) | Each click: there then back / replay |
 
@@ -54,14 +54,23 @@ Open a page in the Squarespace editor (not in Edit mode). Only you see the edito
    behavior; **← Back to editing the path** returns. Scrolling inside the Squarespace editor isn't the
    real page scroll, so in the editor **appear** and **scroll** shapes sit still at the start of their
    path. Test trigger simulates them instead: a **Scroll position** slider for scroll-driven, **Play
-   again** for appear. Check the real scrolling on the live page. Scroll-driven uses `clamp()`, so a
-   shape already on screen at the top of the page starts at the start of its path and finishes by the
-   time the page can't scroll any further. **Remove animation** is at the bottom.
-5. **Phones:** switch the editor to **Mobile** view. The panel's **On phones** option picks Off
+   again** for appear. Check the real scrolling on the live page. Scroll-driven starts as soon as the
+   shape's spot is on screen (right away if it's visible at the top of the page). It travels the path
+   at **Speed** × your scrolling (1× = a straight-down path keeps pace with the page), and if the page
+   can't scroll that far it finishes by the bottom of the page.
+
+   **Preview** (under Trigger) holds the shape still at a point along its path. Drag to scrub, or ▶
+   to play one pass (for Scroll-driven it's the **Scroll position**). The preview only runs on its
+   own for an always-on animation: Page load with Loop or Back-and-forth.
+5. **Copy / paste:** **Copy animation** in a shape's panel, then open another shape (even on another
+   page in the same tab) and **Paste animation**. It copies the path, trigger and desktop/phone
+   settings. Paths are relative to each shape's own spot. **Remove animation** is next to them.
+6. **Phones:** switch the editor to **Mobile** view. The panel's **On phones** option picks Off
    (default), Same as desktop, or Own settings.
-6. **Save** (in the bar, bottom-right) writes every element's settings on this page into its **Page
+7. **Save** (in the panel's footer, or a small bar bottom-right when no panel is open and there's
+   something to save) writes every element's settings on this page into its **Page
    Header Code Injection** in one go. Only the Shape Motion block in that box is replaced, and anything
-   else there is kept. **Undo save** puts it back. **Copy** is the manual fallback: paste into Page
+   else there is kept. **Undo save** puts it back. **Copy code** is the manual fallback: paste into Page
    Settings → Advanced → Page Header Code Injection. If saved settings point at blocks that no longer
    exist, the bar offers **Clean up**.
 
@@ -103,7 +112,7 @@ elements); page settings win. The editor doesn't save site-wide settings yet.
 | `appearAt` | ScrollTrigger start, e.g. `"top 85%"` | appear: how far into view |
 | `replay` | `"once"` / `"every"` / `"reverse"` | appear: replay behavior |
 | `scrub` | seconds (0 = locked) | scroll: smoothing |
-| `scrollRange` | `"cross"` / `"center"` | scroll: enters bottom → leaves top, or → middle |
+| `scrollSpeed` | multiplier, e.g. `1` | scroll: path travel per scrolled pixel (1 = as fast as you scroll) |
 | `hoverLeave` | `"reverse"` / `"finish"` | hover: what leaving does |
 | `clickMode` | `"toggle"` / `"replay"` | click: what each click does |
 

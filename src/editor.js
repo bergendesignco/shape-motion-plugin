@@ -693,9 +693,9 @@
             "How far the shape's spot has scrolled into view before it plays");
           select("Replay", "replay", [["once", "Only the first time"], ["every", "Every time it appears"], ["reverse", "Reverse when scrolled back up"]]);
         } else if (trig === "scroll") {
-          select("Moves while", "scrollRange", [["cross", "Crossing the whole screen"], ["center", "Scrolling up to the middle"]],
-            "Which part of the scroll drives the path");
-          slider("Smoothing", "scrub", 0, 2, 0.1, secs, "0 = locked to the scrollbar; higher = catches up smoothly");
+          slider("Speed", "scrollSpeed", 0.25, 3, 0.05, function (v) { return v + "×"; },
+            "How fast it moves along the path compared to scrolling. 1× = as fast as you scroll");
+          slider("Smoothing (lag)", "scrub", 0, 2, 0.1, secs, "0 = sticks exactly to the scrollbar; higher = eases into place behind the scroll");
         } else if (trig === "hover") {
           select("On leave", "hoverLeave", [["reverse", "Go back"], ["finish", "Finish the trip"]]);
         } else if (trig === "click") {

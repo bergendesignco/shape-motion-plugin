@@ -48,7 +48,13 @@ See README.md for usage and the CONFIG reference.
   shape block (placed from the non-animated `.fe-block` container), a floating draggable panel for the
   selected element only, and a save bar. The editor animates the selected element itself. The runtime
   asks `editingId()` BEFORE starting tweens so it isn't animated twice. State survives restarts in
-  `state` (selectedId, panelPos, dirty). No element names/dropdowns: users click the element's badge.
+  `state` (selectedId, panelPos, dirty, testing, previewPos). No element names/dropdowns: users click the
+  element's badge. Save controls live in the panel footer (bar only when no panel + something to
+  save/undo). Copy/paste animation uses sessionStorage `shape-motion-clipboard`.
+- Preview rule (user, 2026-09-25): the path preview must NOT loop unless the animation is always-on
+  (trigger load + playback loop/yoyo). MotionPathHelper forces repeat(-1) and restarts on every drag
+  release, so rebuild() resets repeat/pauses at `state.previewPos`, and a pointerup handler re-pauses
+  after drags.
   Save = GET → replace the marked block in `headerInjectCode` → POST (docs/squarespace-saving.md).
 - `legacy/motionpath-helper-snippet.html` is the old single-shape paste-in snippet (not maintained).
 
@@ -64,8 +70,9 @@ See README.md for usage and the CONFIG reference.
   the editor. So when `SM.inSquarespaceEditor()`, appear/scroll hold at the path start (no ScrollTrigger)
   and the panel's Test trigger simulates them (scroll = progress slider, appear = play). Hover/click
   run for real in the editor (confirmed working by the user).
-- Scroll-driven uses `start: "clamp(top bottom)"` / `end: "clamp(bottom top)"` so shapes visible at load
-  start at progress 0.
+- Scroll-driven: `start: "clamp(top bottom)"`, end = start + pathLength/scrollSpeed (capped at max
+  scroll). The old "screen crossing" range squeezed long paths into a short scroll ("way faster than the
+  scrolling", user 2026-09-25).
 
 ## Page facts (from the saved page)
 - 6 shape blocks in section 1: rectangle (`block-yui_3_17_2_1_1790263224900_423`), narrow-pow,

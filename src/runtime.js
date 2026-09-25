@@ -24,7 +24,7 @@
 
   var SETTING_KEYS = ["path", "duration", "delay", "ease", "playback", "repeatDelay", "start", "end",
     "home", "autoRotate", "rotateOffset", "anchor",
-    "trigger", "appearAt", "replay", "scrub", "scrollRange", "hoverLeave", "clickMode"];
+    "trigger", "appearAt", "replay", "scrub", "scrollSpeed", "hoverLeave", "clickMode"];
   var DEFAULT_SETTINGS = {
     path: "M0,0 C100,-60 200,60 300,0",
     duration: 4, delay: 0, ease: "power1.inOut", playback: "yoyo", repeatDelay: 0.5,
@@ -34,7 +34,7 @@
     appearAt: "top 85%",   // appear: ScrollTrigger start (block top vs. viewport)
     replay: "once",        // appear: "once" | "every" | "reverse"
     scrub: 0.5,            // scroll: smoothing in seconds (0 = locked to the scrollbar)
-    scrollRange: "cross",  // scroll: "cross" (enters bottom -> leaves top) | "center" (enters bottom -> middle)
+    scrollSpeed: 1,        // scroll: path distance per scrolled pixel (1 = as fast as you scroll)
     hoverLeave: "reverse", // hover: "reverse" (go back) | "finish"
     clickMode: "toggle"    // click: "toggle" (there and back) | "replay"
   };
@@ -112,6 +112,18 @@
     return el.closest(".fe-block") || el.parentElement || el;
   };
 
+  // Length (px) of the part of the path the shape travels.
+  SM.pathLength = function (c) {
+    var MP = window.MotionPathPlugin;
+    try {
+      var raw = MP.getRawPath(c.path);
+      MP.cacheRawPathMeasurements(raw);
+      return raw.totalLength * Math.abs((c.end == null ? 1 : c.end) - (c.start || 0));
+    } catch (e) {
+      return 500;
+    }
+  };
+
   SM.needsScrollTrigger = function (c) {
     var t = c && c.trigger;
     return t === "appear" || t === "scroll";
@@ -157,15 +169,19 @@
         onLeaveBack: replay === "reverse" ? function () { tween.reverse(); } : null
       });
     } else if (trigger === "scroll") {
-      // Scroll position drives progress along the path.
+      // Scroll position drives progress along the path. It starts as soon as the shape's spot is on
+      // screen (clamp: right away if it's already visible at the top of the page), and the scroll
+      // distance is the path's length / speed, so at 1x the shape travels as fast as you scroll.
+      // If the page can't scroll that far, it finishes at the bottom of the page instead.
+      var dist = SM.pathLength(c) / (c.scrollSpeed > 0 ? c.scrollSpeed : 1);
       tween = SM.buildTween(el, c, {
         repeat: 0, yoyo: false, delay: 0, immediateRender: true,
         scrollTrigger: {
           trigger: box,
-          // clamp(): a shape already on screen at the top of the page starts at the start of its path
           start: "clamp(top bottom)",
-          end: c.scrollRange === "center" ? "clamp(center center)" : "clamp(bottom top)",
-          scrub: c.scrub > 0 ? c.scrub : true
+          end: function (self) { return Math.min(self.start + Math.max(dist, 50), ST.maxScroll(window)); },
+          scrub: c.scrub > 0 ? c.scrub : true,
+          invalidateOnRefresh: true
         }
       });
     } else if (trigger === "hover") {
