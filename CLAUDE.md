@@ -70,8 +70,12 @@ See README.md for usage and the CONFIG reference.
   the editor. So when `SM.inSquarespaceEditor()`, appear/scroll hold at the path start (no ScrollTrigger)
   and the panel's Test trigger simulates them (scroll = progress slider, appear = play). Hover/click
   run for real in the editor (confirmed working by the user).
-- Scroll-driven: `start: "clamp(top bottom)"`, end = start + pathLength/scrollSpeed (capped at max
-  scroll). The old "screen crossing" range squeezed long paths into a short scroll ("way faster than the
+- Scroll-driven: ScrollTrigger (no animation attached), `start: "clamp(top bottom)"`, end = start +
+  `SM.scrollMap(c).distance` (capped at max scroll); onUpdate sets tween.progress(map.progressAt(p)).
+  Always ease "none". `scrollFollow: "page"` (default) inverts the path's y so the shape's vertical
+  position tracks scroll 1:1 (keeps its screen spot, uses running max for up-turns, falls back to
+  "path" if the path doesn't go down). User expectation (2026-09-25): "stay in its fixed position and
+  scroll". `"path"` = pathLength/scrollSpeed. The old "screen crossing" range squeezed long paths into a short scroll ("way faster than the
   scrolling", user 2026-09-25).
 
 ## Page facts (from the saved page)

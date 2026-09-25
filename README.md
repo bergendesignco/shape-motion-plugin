@@ -45,7 +45,7 @@ Open a page in the Squarespace editor (not in Edit mode). Only you see the edito
    |---|---|---|
    | Page load | Plays right away (the default) | Duration, delay, playback, pause |
    | When it appears | Waits at the start of its path, plays when scrolled into view | Starts when (just visible / a bit in / halfway), Replay (first time / every time / reverse on scroll back) |
-   | Scroll-driven | Scrolling moves it along the path, backwards when scrolling up | Speed (1× = as fast as you scroll), Smoothing (lag) |
+   | Scroll-driven | Scrolling moves it along the path, backwards when scrolling up | Moves: with the page (default) / along the path + Speed · Smoothing (lag) |
    | Hover | Plays while hovered | On leave: go back / finish the trip |
    | Click | Plays on click (pointer cursor) | Each click: there then back / replay |
 
@@ -55,9 +55,12 @@ Open a page in the Squarespace editor (not in Edit mode). Only you see the edito
    real page scroll, so in the editor **appear** and **scroll** shapes sit still at the start of their
    path. Test trigger simulates them instead: a **Scroll position** slider for scroll-driven, **Play
    again** for appear. Check the real scrolling on the live page. Scroll-driven starts as soon as the
-   shape's spot is on screen (right away if it's visible at the top of the page). It travels the path
-   at **Speed** × your scrolling (1× = a straight-down path keeps pace with the page), and if the page
-   can't scroll that far it finishes by the bottom of the page.
+   shape's spot is on screen (right away if it's visible at the top of the page) and always moves at an
+   even rate (no ease). **Moves → With the page** (default): the shape's height tracks your scrolling
+   1:1, so it keeps its spot on screen while following the curve side to side; if the path doubles back
+   up, it holds until the scroll catches up. **Along the path**: an even **Speed** along the curve (1× =
+   as fast as you scroll), good for mostly-sideways paths. If the page can't scroll far enough, it
+   finishes by the bottom of the page.
 
    **Preview** (under Trigger) holds the shape still at a point along its path. Drag to scrub, or ▶
    to play one pass (for Scroll-driven it's the **Scroll position**). The preview only runs on its
@@ -112,7 +115,8 @@ elements); page settings win. The editor doesn't save site-wide settings yet.
 | `appearAt` | ScrollTrigger start, e.g. `"top 85%"` | appear: how far into view |
 | `replay` | `"once"` / `"every"` / `"reverse"` | appear: replay behavior |
 | `scrub` | seconds (0 = locked) | scroll: smoothing |
-| `scrollSpeed` | multiplier, e.g. `1` | scroll: path travel per scrolled pixel (1 = as fast as you scroll) |
+| `scrollFollow` | `"page"` / `"path"` | scroll: track the scroll vertically (keeps its spot on screen) or even speed along the path |
+| `scrollSpeed` | multiplier, e.g. `1` | scroll `"path"`: path travel per scrolled pixel (1 = as fast as you scroll) |
 | `hoverLeave` | `"reverse"` / `"finish"` | hover: what leaving does |
 | `clickMode` | `"toggle"` / `"replay"` | click: what each click does |
 

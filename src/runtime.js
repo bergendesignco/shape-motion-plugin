@@ -24,7 +24,7 @@
 
   var SETTING_KEYS = ["path", "duration", "delay", "ease", "playback", "repeatDelay", "start", "end",
     "home", "autoRotate", "rotateOffset", "anchor",
-    "trigger", "appearAt", "replay", "scrub", "scrollSpeed", "hoverLeave", "clickMode"];
+    "trigger", "appearAt", "replay", "scrub", "scrollFollow", "scrollSpeed", "hoverLeave", "clickMode"];
   var DEFAULT_SETTINGS = {
     path: "M0,0 C100,-60 200,60 300,0",
     duration: 4, delay: 0, ease: "power1.inOut", playback: "yoyo", repeatDelay: 0.5,
@@ -34,7 +34,8 @@
     appearAt: "top 85%",   // appear: ScrollTrigger start (block top vs. viewport)
     replay: "once",        // appear: "once" | "every" | "reverse"
     scrub: 0.5,            // scroll: smoothing in seconds (0 = locked to the scrollbar)
-    scrollSpeed: 1,        // scroll: path distance per scrolled pixel (1 = as fast as you scroll)
+    scrollFollow: "page",  // scroll: "page" (moves down with the page, keeps its spot on screen) | "path"
+    scrollSpeed: 1,        // scroll "path": path distance per scrolled pixel (1 = as fast as you scroll)
     hoverLeave: "reverse", // hover: "reverse" (go back) | "finish"
     clickMode: "toggle"    // click: "toggle" (there and back) | "replay"
   };
@@ -124,6 +125,50 @@
     }
   };
 
+  // Scroll mapping for scroll-driven animations: turns "how far through the scroll" (0-1) into
+  // "how far along the path" (0-1), plus how many pixels of scroll the whole trip takes.
+  // "page": the shape's vertical position tracks the scroll 1:1 (it keeps its spot on screen while
+  //   following the curve sideways). Uses the lowest point reached so far, so a path that doubles
+  //   back up holds still instead of jumping.
+  // "path": even speed along the path, pathLength / scrollSpeed pixels of scroll.
+  SM.scrollMap = function (c) {
+    var MP = window.MotionPathPlugin;
+    var from = c.home === "end" ? c.end : c.start, to = c.home === "end" ? c.start : c.end;
+    if (from == null) from = 0;
+    if (to == null) to = 1;
+    var linear = function (s) { return s; };
+    var byPath = { distance: SM.pathLength(c) / (c.scrollSpeed > 0 ? c.scrollSpeed : 1), progressAt: linear };
+    if (c.scrollFollow === "path") return byPath;
+    try {
+      var raw = MP.getRawPath(c.path);
+      MP.cacheRawPathMeasurements(raw);
+      var N = 200, ys = [], y0 = null, maxY = 0, i, y;
+      for (i = 0; i <= N; i++) {
+        y = MP.getPositionOnPath(raw, from + (to - from) * (i / N)).y;
+        if (y0 === null) y0 = y;
+        maxY = Math.max(maxY, y - y0);
+        ys.push(maxY); // lowest point reached so far (never goes back up)
+      }
+      var span = ys[N];
+      if (span < 20) return byPath; // path doesn't really go down: fall back to even speed
+      return {
+        distance: span,
+        progressAt: function (s) {
+          var target = s * span;
+          for (var j = 1; j <= N; j++) {
+            if (ys[j] >= target) {
+              var a = ys[j - 1], b = ys[j];
+              return (j - 1 + (b > a ? (target - a) / (b - a) : 0)) / N;
+            }
+          }
+          return 1;
+        }
+      };
+    } catch (e) {
+      return byPath;
+    }
+  };
+
   SM.needsScrollTrigger = function (c) {
     var t = c && c.trigger;
     return t === "appear" || t === "scroll";
@@ -169,20 +214,23 @@
         onLeaveBack: replay === "reverse" ? function () { tween.reverse(); } : null
       });
     } else if (trigger === "scroll") {
-      // Scroll position drives progress along the path. It starts as soon as the shape's spot is on
-      // screen (clamp: right away if it's already visible at the top of the page), and the scroll
-      // distance is the path's length / speed, so at 1x the shape travels as fast as you scroll.
-      // If the page can't scroll that far, it finishes at the bottom of the page instead.
-      var dist = SM.pathLength(c) / (c.scrollSpeed > 0 ? c.scrollSpeed : 1);
-      tween = SM.buildTween(el, c, {
-        repeat: 0, yoyo: false, delay: 0, immediateRender: true,
-        scrollTrigger: {
-          trigger: box,
-          start: "clamp(top bottom)",
-          end: function (self) { return Math.min(self.start + Math.max(dist, 50), ST.maxScroll(window)); },
-          scrub: c.scrub > 0 ? c.scrub : true,
-          invalidateOnRefresh: true
-        }
+      // Scroll drives the path. Starts once the shape's spot is on screen (clamp: right away if it's
+      // visible at the top of the page) and lasts map.distance px of scroll, capped so it still
+      // finishes at the bottom of the page. Always an even rate: no ease.
+      var map = SM.scrollMap(c);
+      tween = SM.buildTween(el, c, { repeat: 0, yoyo: false, delay: 0, ease: "none", paused: true, immediateRender: true });
+      var lag = c.scrub > 0 ? c.scrub : 0;
+      st = ST.create({
+        trigger: box,
+        start: "clamp(top bottom)",
+        end: function (self) { return Math.min(self.start + Math.max(map.distance, 50), ST.maxScroll(window)); },
+        invalidateOnRefresh: true,
+        onUpdate: function (self) {
+          var p = map.progressAt(self.progress);
+          if (lag) gsap.to(tween, { progress: p, duration: lag, ease: "power3.out", overwrite: true });
+          else tween.progress(p);
+        },
+        onRefresh: function (self) { tween.progress(map.progressAt(self.progress)); }
       });
     } else if (trigger === "hover") {
       tween = SM.buildTween(el, c, { repeat: 0, yoyo: false, paused: true, immediateRender: true });

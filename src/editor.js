@@ -36,7 +36,7 @@
   // Editor state that survives the UI being rebuilt on every restart (view switches, edit mode).
   var state = { selectedId: null, panelPos: null, dirty: false, status: "", testing: false, previewPos: 0 };
   // The path-editing preview, so drags can put it back where it was (see pointerup below).
-  var preview = { tween: null, still: false };
+  var preview = { tween: null, still: false, at: function (v) { return v; } };
 
   function pageElements() { return SM.data.page.elements; }
 
@@ -428,7 +428,10 @@
         syncPath();
         if (newPath) { cfg.path = newPath; markDirty(); }
         if (helper) helper.kill(); // also reverts the tween
-        tween = SM.buildTween(sel, cfg);
+        // Scroll-driven previews move at an even rate and map "scroll position" the way visitors get it.
+        var scrollMap = cfg.trigger === "scroll" ? SM.scrollMap(cfg) : null;
+        preview.at = scrollMap ? scrollMap.progressAt : function (v) { return v; };
+        tween = SM.buildTween(sel, cfg, scrollMap ? { ease: "none" } : null);
         var pos = layoutRect(sel);
         helper = window.MotionPathHelper.create(tween, { pathColor: "#ff3b6b", pathWidth: 3, pathOpacity: 0.9 });
         // The helper forces the preview to loop forever. Only keep that for an always-on animation
@@ -439,7 +442,7 @@
           tween.repeat(-1).repeatDelay(cfg.repeatDelay).yoyo(cfg.playback === "yoyo");
         } else {
           tween.repeat(0).yoyo(false).pause();
-          tween.progress(state.previewPos || 0);
+          tween.progress(preview.at(state.previewPos || 0));
         }
         preview.tween = tween;
         preview.still = !alwaysOn;
@@ -556,7 +559,7 @@
 
         if (cfg && state.testing && simulatedScrollTest()) {
           // Scroll: scrubbed by the slider. Appear: plays as if it just came into view.
-          tween = SM.buildTween(sel, cfg, cfg.trigger === "scroll" ? { repeat: 0, yoyo: false, delay: 0, paused: true, immediateRender: true } : {});
+          tween = SM.buildTween(sel, cfg, cfg.trigger === "scroll" ? { repeat: 0, yoyo: false, delay: 0, ease: "none", paused: true, immediateRender: true } : {});
         } else if (cfg && state.testing) testStop = SM.animate(sel, cfg); // the real visitor behavior
         else if (cfg) rebuild();
       }
@@ -579,7 +582,7 @@
           var val = make("em", null, "0%");
           input.addEventListener("input", function () {
             val.textContent = Math.round(input.value * 100) + "%";
-            if (tween) tween.progress(parseFloat(input.value));
+            if (tween) tween.progress(SM.scrollMap(cfg).progressAt(parseFloat(input.value)));
           });
           wrap.appendChild(input);
           wrap.appendChild(val);
@@ -651,7 +654,12 @@
           row(label, wrap, hint);
         }
         function select(label, key, options, hint) {
-          row(label, selectEl(options, cfg[key], function (v) { cfg[key] = v; markDirty(); rebuild(); }), hint);
+          row(label, selectEl(options, cfg[key], function (v) {
+            cfg[key] = v;
+            markDirty();
+            if (key === "scrollFollow") SM.restart(); // shows/hides Speed
+            else rebuild();
+          }), hint);
         }
         var secs = function (v) { return v + "s"; };
         var pct = function (v) { return Math.round(v * 100) + "%"; };
@@ -671,13 +679,19 @@
         pinput.addEventListener("input", function () {
           state.previewPos = parseFloat(pinput.value);
           pval.textContent = Math.round(state.previewPos * 100) + "%";
-          if (tween) tween.pause().progress(state.previewPos);
+          if (tween) tween.pause().progress(preview.at(state.previewPos));
         });
         var play = button("▶", function () {
           if (!tween) return;
           if (trig === "load" || trig === "appear") {
             // Plays as configured (playback, pause between); an always-on one keeps looping.
             tween.repeat(cfg.playback === "once" ? 0 : -1).yoyo(cfg.playback === "yoyo").repeatDelay(cfg.repeatDelay);
+          }
+          if (trig === "scroll") {
+            // Simulate scrolling through it at a steady pace.
+            var sim = { v: 0 };
+            SM.gsap.to(sim, { v: 1, duration: 3, ease: "none", onUpdate: function () { tween.progress(preview.at(sim.v)); } });
+            return;
           }
           tween.restart();
         }, "smo-play");
@@ -693,8 +707,12 @@
             "How far the shape's spot has scrolled into view before it plays");
           select("Replay", "replay", [["once", "Only the first time"], ["every", "Every time it appears"], ["reverse", "Reverse when scrolled back up"]]);
         } else if (trig === "scroll") {
-          slider("Speed", "scrollSpeed", 0.25, 3, 0.05, function (v) { return v + "×"; },
-            "How fast it moves along the path compared to scrolling. 1× = as fast as you scroll");
+          select("Moves", "scrollFollow", [["page", "With the page (keeps its spot on screen)"], ["path", "Along the path at a set speed"]],
+            "With the page: its height tracks your scrolling and it follows the curve side to side. Along the path: an even speed along the curve.");
+          if (cfg.scrollFollow === "path") {
+            slider("Speed", "scrollSpeed", 0.25, 3, 0.05, function (v) { return v + "×"; },
+              "How fast it moves along the path compared to scrolling. 1× = as fast as you scroll");
+          }
           slider("Smoothing (lag)", "scrub", 0, 2, 0.1, secs, "0 = sticks exactly to the scrollbar; higher = eases into place behind the scroll");
         } else if (trig === "hover") {
           select("On leave", "hoverLeave", [["reverse", "Go back"], ["finish", "Finish the trip"]]);
@@ -704,7 +722,7 @@
 
         if (trig !== "scroll") slider("Duration", "duration", 0.2, 15, 0.1, secs, "Seconds for one trip along the path");
         if (trig === "load" || trig === "appear") slider("Delay", "delay", 0, 5, 0.1, secs, "Wait before it starts");
-        select("Ease", "ease", EASES, trig === "scroll" ? "Speed curve (\"none\" feels most natural for scroll)" : "Speed curve");
+        if (trig !== "scroll") select("Ease", "ease", EASES, "Speed curve"); // scroll always moves at an even rate
         if (trig === "load" || trig === "appear") {
           select("Playback", "playback", [["loop", "Loop (restart)"], ["yoyo", "Back and forth"], ["once", "Play once"]]);
           slider("Pause between", "repeatDelay", 0, 5, 0.1, secs, "Pause between loops");
@@ -766,7 +784,7 @@
   document.addEventListener("pointerup", function (e) {
     if (e.target && e.target.closest && e.target.closest("svg.motion-path-helper")) {
       if (preview.still && preview.tween) {
-        setTimeout(function () { preview.tween.pause().progress(state.previewPos || 0); }, 0);
+        setTimeout(function () { preview.tween.pause().progress(preview.at(state.previewPos || 0)); }, 0);
       }
       state.dirty = true;
       state.status = "";
