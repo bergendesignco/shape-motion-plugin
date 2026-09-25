@@ -33,7 +33,7 @@ Squarespace editor and its save endpoints work) but shares no code with them.
    - Editor: a "Save" button that writes this page's settings to its header injection (and site-wide
      for header/footer elements), plus an undo.
    - Tag `v0.1.0`, give the user the one-line install.
-2. **Detection + indicators:** shape blocks first, then SVGs in code blocks. Click an element to add or
+2. **Detection + indicators:** shape-block badges + per-element panel are done (pulled into step 1). Next: then SVGs in code blocks. Click an element to add or
    edit its animation. Many elements per page.
 3. **Features** as per-element settings: scroll (see the scroll plan in TODO.md), then MorphSVG, …
 

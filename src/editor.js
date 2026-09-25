@@ -2,6 +2,9 @@
  * Shape Motion for Squarespace - editor (only loaded for logged-in editors, see runtime.js)
  * https://github.com/bergendesignco/shape-motion-plugin
  *
+ * UI: a badge on every shape block (+ = no animation, dot = animated). Click a badge to open that
+ * element's own floating panel. A small save bar saves every element on the page in one write.
+ *
  * Saving follows docs/squarespace-saving.md: GET the page settings, merge ONLY our marked block into
  * collectionData.headerInjectCode, POST the whole object back. Never post a partial object.
  */
@@ -16,8 +19,8 @@
     "back.out(1.7)", "back.inOut(1.7)", "elastic.out(1, 0.4)", "bounce.out", "expo.inOut", "circ.inOut"];
   var ANCHORS = ["0% 0%", "50% 0%", "100% 0%", "0% 50%", "50% 50%", "100% 50%", "0% 100%", "50% 100%", "100% 100%"];
 
-  // Editor state that survives the panel being rebuilt on every restart (view switches, edit mode).
-  var state = { selectedId: null, collapsed: false, dirty: false, status: "" };
+  // Editor state that survives the UI being rebuilt on every restart (view switches, edit mode).
+  var state = { selectedId: null, panelPos: null, dirty: false, status: "" };
 
   function pageElements() { return SM.data.page.elements; }
 
@@ -27,20 +30,15 @@
     return out;
   }
 
-  // Shapes on the page, plus anything already in the saved settings.
-  function candidates() {
-    var list = [];
-    var seen = {};
-    Array.prototype.forEach.call(document.querySelectorAll(SM.SHAPE_SELECTOR), function (el) {
-      if (!el.id) return;
-      var name = el.querySelector("[data-shape-name]");
-      list.push({ id: el.id, label: (name ? name.getAttribute("data-shape-name") : "shape") });
-      seen[el.id] = true;
-    });
-    Object.keys(SM.elements()).forEach(function (id) {
-      if (!seen[id]) list.push({ id: id, label: "missing element" });
-    });
-    return list;
+  function shapeName(el) {
+    var n = el.querySelector("[data-shape-name]");
+    var raw = n ? n.getAttribute("data-shape-name") : "shape";
+    return raw.replace(/-/g, " ").replace(/^./, function (c) { return c.toUpperCase(); });
+  }
+
+  // The block's layout box. Its container doesn't move when the block is animated.
+  function anchorBox(el) {
+    return el.closest(".fe-block") || el.parentElement || el;
   }
 
   // Site header/footer elements belong in the site-wide injection: not supported yet.
@@ -96,14 +94,13 @@
       var collectionData = {};
       Object.keys(current.collectionData).forEach(function (k) { collectionData[k] = current.collectionData[k]; });
       collectionData.headerInjectCode = typeof nextHeader === "function" ? nextHeader(previous) : nextHeader;
-      var crumb = getCrumb();
       return requestJson("/api/commondata/SaveCollectionSettings", {
         method: "POST",
         credentials: "same-origin",
         headers: {
           Accept: "application/json, text/plain, */*",
           "Content-Type": "application/json; charset=UTF-8",
-          "x-csrf-token": crumb
+          "x-csrf-token": getCrumb()
         },
         body: JSON.stringify({ collectionData: collectionData, memberAreaData: current.memberAreaData || {} })
       }).then(function () { return previous; });
@@ -126,26 +123,45 @@
 
   function undoKey(pageId) { return "shape-motion-undo:" + pageId; }
 
-  /* ---------------- editor for one layout ---------------- */
+  /* ---------------- small DOM helpers ---------------- */
+
+  function make(tag, cls, text) {
+    var n = document.createElement(tag);
+    if (cls) n.className = cls;
+    if (text != null) n.textContent = text;
+    return n;
+  }
+  function button(text, onClick, cls) {
+    var b = make("button", cls, text);
+    b.type = "button";
+    b.addEventListener("click", function (e) { e.stopPropagation(); onClick(b); });
+    return b;
+  }
+  function selectEl(options, value, onChange) {
+    var s = make("select");
+    options.forEach(function (o) {
+      var opt = make("option", null, Array.isArray(o) ? o[1] : o);
+      opt.value = Array.isArray(o) ? o[0] : o;
+      s.appendChild(opt);
+    });
+    s.value = value;
+    s.addEventListener("change", function () { onChange(s.value); });
+    return s;
+  }
+
+  /* ---------------- the editor ---------------- */
 
   SM.editor = {
+    // The element whose panel is open: the editor animates it itself, so the runtime skips it.
+    editingId: function () {
+      return state.selectedId && pageElements()[state.selectedId] && document.getElementById(state.selectedId) ? state.selectedId : null;
+    },
     start: function (phone) {
       var gsap = SM.gsap;
       gsap.registerPlugin(window.MotionPathHelper);
-
-      var list = candidates();
-      if (!state.selectedId || !list.some(function (c) { return c.id === state.selectedId; })) {
-        var withSettings = list.filter(function (c) { return pageElements()[c.id]; })[0];
-        state.selectedId = (withSettings || list[0] || {}).id || null;
-      }
-      var id = state.selectedId;
-      var el = id ? document.getElementById(id) : null;
-      var elCfg = id ? pageElements()[id] : null;
-      // The settings object this panel edits. null = nothing to edit for this layout.
-      var cfg = !elCfg ? null : (phone ? (elCfg.mobile && typeof elCfg.mobile === "object" ? elCfg.mobile : null) : elCfg.desktop);
-      SM.editingId = elCfg ? id : null;
-
-      var helper = null, tween = null, output, statusEl;
+      var ui = [];          // nodes to remove on stop
+      var cleanups = [];    // listeners to remove on stop
+      var helper = null, tween = null, statusEl = null, output = null, badges = [];
 
       function markDirty() { state.dirty = true; state.status = ""; showStatus(); }
       function showStatus() {
@@ -154,203 +170,76 @@
         statusEl.classList.toggle("is-dirty", state.dirty && !state.status);
       }
 
-      // Starter paths, sized to the block but kept on screen (blocks are near full width on phones).
-      function openPath() {
-        var w = Math.round(Math.min(el.offsetWidth * 0.7, window.innerWidth * 0.13));
-        return "M0,0 C" + w + "," + -w * 0.6 + " " + w * 2 + "," + w * 0.6 + " " + w * 3 + ",0";
-      }
-      function loopPath() {
-        var w = Math.round(Math.min(el.offsetWidth * 0.6, window.innerWidth * 0.15));
-        return "M0,0 C0,-" + w + " " + w * 2 + ",-" + w + " " + w * 2 + ",0 C" + w * 2 + "," + w + " 0," + w + " 0,0";
-      }
-      function syncPath() {
-        if (!helper || !cfg) return;
-        var p = helper.getString().trim();
-        if (p !== cfg.path) { cfg.path = p; state.dirty = true; }
-      }
+      var shapes = Array.prototype.filter.call(document.querySelectorAll(SM.SHAPE_SELECTOR), function (el) { return !!el.id; });
+      if (state.selectedId && !document.getElementById(state.selectedId)) state.selectedId = null;
 
-      // Where the block sits in the layout with no animation applied (page coordinates).
-      function layoutRect() {
-        var saved = { x: gsap.getProperty(el, "x"), y: gsap.getProperty(el, "y"), rotation: gsap.getProperty(el, "rotation") };
-        gsap.set(el, { x: 0, y: 0, rotation: 0 });
-        var r = el.getBoundingClientRect();
-        gsap.set(el, saved);
-        return { left: r.left + window.scrollX, top: r.top + window.scrollY };
-      }
+      var sel = state.selectedId ? document.getElementById(state.selectedId) : null;
+      var selCfg = sel ? pageElements()[sel.id] : null;
+      // The settings object the panel edits. null = nothing to edit for this layout.
+      var cfg = !selCfg ? null : (phone ? (selCfg.mobile && typeof selCfg.mobile === "object" ? selCfg.mobile : null) : selCfg.desktop);
 
-      function rebuild(newPath) {
-        syncPath();
-        if (newPath) { cfg.path = newPath; markDirty(); }
-        if (helper) helper.kill(); // also reverts the tween
-        tween = SM.buildTween(el, cfg);
-        var pos = layoutRect();
-        helper = window.MotionPathHelper.create(tween, { pathColor: "#ff3b6b", pathWidth: 3, pathOpacity: 0.9 });
-        // The helper always loops while editing; keep our pause between loops ("once" previews with a 1s pause).
-        tween.repeatDelay(cfg.playback === "once" ? 1 : cfg.repeatDelay);
-        // Draw the path from the anchor point instead of the block's top-left corner.
-        var a = cfg.anchor.split(" ").map(parseFloat);
-        var svg = document.querySelector("svg.motion-path-helper");
-        if (svg) {
-          svg.style.left = pos.left + el.offsetWidth * a[0] / 100 + "px";
-          svg.style.top = pos.top + el.offsetHeight * a[1] / 100 + "px";
-        }
-      }
-
-      /* ---- panel ---- */
-      var panel = document.createElement("div");
-      panel.className = "mph-panel";
-      panel.classList.toggle("is-collapsed", state.collapsed);
-      document.body.appendChild(panel);
-
-      var head = document.createElement("div");
-      head.className = "mph-head";
-      var title = document.createElement("strong");
-      title.textContent = "Shape Motion";
-      var toggle = document.createElement("button");
-      toggle.type = "button";
-      toggle.textContent = state.collapsed ? "+" : "–";
-      toggle.addEventListener("click", function () {
-        state.collapsed = !state.collapsed;
-        panel.classList.toggle("is-collapsed", state.collapsed);
-        toggle.textContent = state.collapsed ? "+" : "–";
-      });
-      head.appendChild(title);
-      head.appendChild(toggle);
-      panel.appendChild(head);
-
-      var body = document.createElement("div");
-      body.className = "mph-body";
-      panel.appendChild(body);
-
-      function note(text, cls) {
-        var n = document.createElement("p");
-        n.className = "mph-note" + (cls ? " " + cls : "");
-        n.textContent = text;
-        body.appendChild(n);
-        return n;
-      }
-      function row(label, control, hint) {
-        var r = document.createElement("div");
-        r.className = "mph-row";
-        var t = document.createElement("span");
-        t.textContent = label;
-        r.appendChild(t);
-        r.appendChild(control);
-        if (hint) r.title = hint;
-        body.appendChild(r);
-        return r;
-      }
-      function selectEl(options, value, onChange) {
-        var s = document.createElement("select");
-        options.forEach(function (o) {
-          var opt = document.createElement("option");
-          opt.value = Array.isArray(o) ? o[0] : o;
-          opt.textContent = Array.isArray(o) ? o[1] : o;
-          s.appendChild(opt);
-        });
-        s.value = value;
-        s.addEventListener("change", function () { onChange(s.value); });
-        return s;
-      }
-      function button(text, onClick, cls) {
-        var b = document.createElement("button");
+      /* ---- badges ---- */
+      shapes.forEach(function (el) {
+        var animated = !!pageElements()[el.id];
+        var site = isSiteElement(el);
+        var b = make("button", "smo-badge" + (animated ? " is-animated" : "") + (el.id === state.selectedId ? " is-selected" : ""), animated ? "" : "+");
         b.type = "button";
-        b.textContent = text;
-        if (cls) b.className = cls;
-        b.addEventListener("click", function () { onClick(b); });
-        return b;
-      }
-      function actions(buttons) {
-        var wrap = document.createElement("div");
-        wrap.className = "mph-actions";
-        buttons.forEach(function (b) { wrap.appendChild(b); });
-        body.appendChild(wrap);
-        return wrap;
-      }
-
-      // Element picker
-      if (!list.length) {
-        note("No shape blocks on this page.");
-      } else {
-        row("Element", selectEl(list.map(function (c) {
-          return [c.id, (pageElements()[c.id] ? "● " : "○ ") + c.label + " · " + c.id.replace(/^block-/, "").slice(-6)];
-        }), id, function (v) {
-          state.selectedId = v;
-          SM.restart();
-        }), "● = has an animation");
-      }
-
-      if (el && !elCfg) {
-        if (isSiteElement(el)) {
-          note("This is in the site header/footer. Saving those comes in a later version.");
-        } else {
-          note("No animation on this element yet.");
-          actions([button("Add animation", function () {
+        b.title = site ? shapeName(el) + " (site header/footer: not supported yet)" :
+          (animated ? "Edit animation · " : "Add animation · ") + shapeName(el);
+        if (site) b.disabled = true;
+        b.addEventListener("mouseenter", function () { anchorBox(el).classList.add("smo-hover"); });
+        b.addEventListener("mouseleave", function () { anchorBox(el).classList.remove("smo-hover"); });
+        b.addEventListener("click", function (e) {
+          e.preventDefault();
+          e.stopPropagation();
+          anchorBox(el).classList.remove("smo-hover");
+          if (!pageElements()[el.id]) {
             var d = copySettings(SM.DEFAULT_SETTINGS);
-            d.path = openPath();
-            pageElements()[id] = { desktop: d, mobile: "off" };
+            d.path = starterPath(el, "open");
+            pageElements()[el.id] = { desktop: d, mobile: "off" };
             markDirty();
-            SM.restart();
-          }, "is-primary")]);
-        }
-      } else if (elCfg && !el) {
-        note("This element isn't on the page anymore (deleted or duplicated page?).");
+          }
+          state.selectedId = el.id;
+          state.panelPos = null; // open next to the element
+          SM.restart();
+        });
+        document.body.appendChild(b);
+        badges.push({ node: b, el: el });
+        ui.push(b);
+      });
+
+      function placeBadges() {
+        badges.forEach(function (x) {
+          var r = anchorBox(x.el).getBoundingClientRect();
+          x.node.style.left = r.left + window.scrollX - 9 + "px";
+          x.node.style.top = r.top + window.scrollY - 9 + "px";
+        });
       }
+      placeBadges();
+      var onResize = function () { window.requestAnimationFrame(placeBadges); };
+      window.addEventListener("resize", onResize);
+      cleanups.push(function () { window.removeEventListener("resize", onResize); });
 
-      if (el && elCfg) {
-        var layout = document.createElement("div");
-        layout.className = "mph-layout";
-        layout.textContent = phone ? "Phone settings · 767px and below" : "Desktop settings · 768px and up";
-        body.appendChild(layout);
+      /* ---- save bar ---- */
+      var bar = make("div", "smo-bar");
+      var brand = make("strong", null, "Shape Motion");
+      statusEl = make("span", "smo-status");
+      bar.appendChild(brand);
+      bar.appendChild(statusEl);
+      var pageId = SM.pageId();
 
-        if (phone) {
-          var mode = elCfg.mobile && typeof elCfg.mobile === "object" ? "own" : (elCfg.mobile === "same" ? "same" : "off");
-          row("On phones", selectEl([["off", "Off (stays still)"], ["same", "Same as desktop"], ["own", "Own settings"]], mode, function (v) {
-            if (v === "own") {
-              var s = copySettings(elCfg.desktop);
-              s.path = openPath();
-              elCfg.mobile = s;
-            } else {
-              elCfg.mobile = v;
-            }
-            markDirty();
-            SM.restart();
-          }), "What this element does on phones (767px and below)");
-        } else {
-          var summary = elCfg.mobile === "same" ? "same as desktop" : (elCfg.mobile && typeof elCfg.mobile === "object" ? "own settings" : "off (stays still)");
-          note("Phones: " + summary + ". Switch to Mobile view to change.");
-        }
-
-        if (cfg) buildControls();
-        else if (phone && elCfg.mobile === "same") {
-          note("Using the desktop settings. Switch to Desktop view to edit them, or pick \"Own settings\".");
-          tween = SM.buildTween(el, elCfg.desktop); // preview only
-        } else if (phone) {
-          note("The element stays in its normal spot on phones.");
-        }
-
-        actions([button("Remove animation", function () {
-          if (!window.confirm("Remove the animation from this element? (Nothing is saved until you click Save.)")) return;
-          delete pageElements()[id];
+      var missing = Object.keys(pageElements()).filter(function (id) { return !document.getElementById(id); });
+      if (missing.length) {
+        bar.appendChild(button("Clean up " + missing.length + " missing", function () {
+          if (!window.confirm(missing.length + " saved animation(s) point to elements that aren't on this page anymore. Remove them? (Saved when you click Save.)")) return;
+          missing.forEach(function (id) { delete pageElements()[id]; });
           markDirty();
           SM.restart();
-        }, "is-quiet")]);
+        }, "is-quiet"));
       }
 
-      // Save area
-      var saveBox = document.createElement("div");
-      saveBox.className = "mph-save";
-      body.appendChild(saveBox);
-      statusEl = document.createElement("p");
-      statusEl.className = "mph-status";
-      saveBox.appendChild(statusEl);
-      var pageId = SM.pageId();
-      var saveActions = document.createElement("div");
-      saveActions.className = "mph-actions";
-      saveBox.appendChild(saveActions);
-
-      saveActions.appendChild(button("Save to page", function (btn) {
-        if (!pageId) { state.status = "Couldn't find this page's ID. Use Copy code instead."; showStatus(); return; }
+      var saveBtn = button("Save", function (btn) {
+        if (!pageId) { state.status = "Couldn't find this page's ID. Use Copy instead."; showStatus(); return; }
         syncPath();
         var count = Object.keys(pageElements()).length;
         if (!window.confirm("Save animations for " + count + " element" + (count === 1 ? "" : "s") +
@@ -364,15 +253,16 @@
             state.status = "Saved ✓";
           })
           .catch(function (err) {
-            state.status = "Save failed: " + err.message.replace(/\.?$/, ".") + " Nothing was changed. Use Copy code as a fallback.";
+            state.status = "Save failed: " + err.message.replace(/\.?$/, ".") + " Nothing was changed. Use Copy as a fallback.";
           })
           .then(function () { btn.disabled = false; showStatus(); undoBtn.hidden = !hasUndo(); });
-      }, "is-primary"));
+      }, "is-primary");
+      bar.appendChild(saveBtn);
 
       function hasUndo() {
         try { return sessionStorage.getItem(undoKey(pageId)) !== null; } catch (e) { return false; }
       }
-      var undoBtn = button("Undo last save", function (btn) {
+      var undoBtn = button("Undo save", function (btn) {
         var previous;
         try { previous = sessionStorage.getItem(undoKey(pageId)); } catch (e) { previous = null; }
         if (previous === null) return;
@@ -381,6 +271,7 @@
         state.status = "Undoing…"; showStatus();
         savePageHeader(pageId, previous).then(function () {
           try { sessionStorage.removeItem(undoKey(pageId)); } catch (e) { /* ignore */ }
+          state.dirty = false;
           location.reload();
         }).catch(function (err) {
           state.status = "Undo failed: " + err.message;
@@ -389,34 +280,204 @@
         });
       });
       undoBtn.hidden = !hasUndo();
-      saveActions.appendChild(undoBtn);
+      bar.appendChild(undoBtn);
 
-      saveActions.appendChild(button("Copy code", function (btn) {
+      bar.appendChild(button("Copy", function (btn) {
         syncPath();
         output.value = managedBlock();
         output.hidden = false;
-        var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = "Copy code"; }, 1200); };
+        var done = function () { btn.textContent = "Copied!"; setTimeout(function () { btn.textContent = "Copy"; }, 1200); };
         if (navigator.clipboard && window.isSecureContext) navigator.clipboard.writeText(output.value).then(done);
         else { output.select(); document.execCommand("copy"); done(); }
       }));
-
-      output = document.createElement("textarea");
+      output = make("textarea");
       output.readOnly = true;
       output.rows = 5;
       output.hidden = true;
       output.title = "Paste into Page Settings > Advanced > Page Header Code Injection";
-      saveBox.appendChild(output);
+      bar.appendChild(output);
+      document.body.appendChild(bar);
+      ui.push(bar);
       showStatus();
 
-      if (cfg) rebuild();
+      /* ---- element panel ---- */
+      if (sel && selCfg) buildPanel();
 
-      function buildControls() {
+      function starterPath(el, kind) {
+        // Sized to the block but kept on screen (blocks are near full width on phones).
+        var w;
+        if (kind === "loop") {
+          w = Math.round(Math.min(el.offsetWidth * 0.6, window.innerWidth * 0.15));
+          return "M0,0 C0,-" + w + " " + w * 2 + ",-" + w + " " + w * 2 + ",0 C" + w * 2 + "," + w + " 0," + w + " 0,0";
+        }
+        w = Math.round(Math.min(el.offsetWidth * 0.7, window.innerWidth * 0.13));
+        return "M0,0 C" + w + "," + -w * 0.6 + " " + w * 2 + "," + w * 0.6 + " " + w * 3 + ",0";
+      }
+
+      function syncPath() {
+        if (!helper || !cfg) return;
+        var p = helper.getString().trim();
+        if (p !== cfg.path) { cfg.path = p; state.dirty = true; }
+      }
+
+      // Where the block sits in the layout with no animation applied (page coordinates).
+      function layoutRect(el) {
+        var saved = { x: gsap.getProperty(el, "x"), y: gsap.getProperty(el, "y"), rotation: gsap.getProperty(el, "rotation") };
+        gsap.set(el, { x: 0, y: 0, rotation: 0 });
+        var r = el.getBoundingClientRect();
+        gsap.set(el, saved);
+        return { left: r.left + window.scrollX, top: r.top + window.scrollY };
+      }
+
+      function rebuild(newPath) {
+        syncPath();
+        if (newPath) { cfg.path = newPath; markDirty(); }
+        if (helper) helper.kill(); // also reverts the tween
+        tween = SM.buildTween(sel, cfg);
+        var pos = layoutRect(sel);
+        helper = window.MotionPathHelper.create(tween, { pathColor: "#ff3b6b", pathWidth: 3, pathOpacity: 0.9 });
+        // The helper always loops while editing; keep our pause between loops ("once" previews with a 1s pause).
+        tween.repeatDelay(cfg.playback === "once" ? 1 : cfg.repeatDelay);
+        // Draw the path from the anchor point instead of the block's top-left corner.
+        var a = cfg.anchor.split(" ").map(parseFloat);
+        var svg = document.querySelector("svg.motion-path-helper");
+        if (svg) {
+          svg.style.left = pos.left + sel.offsetWidth * a[0] / 100 + "px";
+          svg.style.top = pos.top + sel.offsetHeight * a[1] / 100 + "px";
+        }
+      }
+
+      function closePanel() {
+        state.selectedId = null;
+        SM.restart();
+      }
+
+      function buildPanel() {
+        var panel = make("div", "smo-panel");
+        var head = make("div", "smo-head");
+        head.appendChild(make("strong", null, shapeName(sel)));
+        head.appendChild(make("span", "smo-layout", phone ? "Phone · 767px and below" : "Desktop · 768px and up"));
+        var close = button("✕", closePanel, "smo-close");
+        close.setAttribute("aria-label", "Close");
+        head.appendChild(close);
+        panel.appendChild(head);
+        var body = make("div", "smo-body");
+        panel.appendChild(body);
+
+        function note(text) { body.appendChild(make("p", "smo-note", text)); }
+        function row(label, control, hint) {
+          var r = make("div", "smo-row");
+          r.appendChild(make("span", null, label));
+          r.appendChild(control);
+          if (hint) r.title = hint;
+          body.appendChild(r);
+        }
+        function actions(buttons) {
+          var wrap = make("div", "smo-actions");
+          buttons.forEach(function (b) { wrap.appendChild(b); });
+          body.appendChild(wrap);
+        }
+
+        if (phone) {
+          var mode = selCfg.mobile && typeof selCfg.mobile === "object" ? "own" : (selCfg.mobile === "same" ? "same" : "off");
+          row("On phones", selectEl([["off", "Off (stays still)"], ["same", "Same as desktop"], ["own", "Own settings"]], mode, function (v) {
+            if (v === "own") {
+              var s = copySettings(selCfg.desktop);
+              s.path = starterPath(sel, "open");
+              selCfg.mobile = s;
+            } else {
+              selCfg.mobile = v;
+            }
+            markDirty();
+            SM.restart();
+          }), "What this element does on phones (767px and below)");
+        } else {
+          var summary = selCfg.mobile === "same" ? "same as desktop" : (selCfg.mobile && typeof selCfg.mobile === "object" ? "own settings" : "off (stays still)");
+          note("Phones: " + summary + ". Switch to Mobile view to change.");
+        }
+
+        if (cfg) {
+          buildControls(row, actions);
+        } else if (phone && selCfg.mobile === "same") {
+          note("Using the desktop settings. Switch to Desktop view to edit them, or pick \"Own settings\".");
+          tween = SM.buildTween(sel, selCfg.desktop); // preview only
+        } else if (phone) {
+          note("This element stays in its normal spot on phones.");
+        }
+
+        actions([button("Remove animation", function () {
+          if (!window.confirm("Remove the animation from this element? (Saved when you click Save.)")) return;
+          delete pageElements()[sel.id];
+          state.selectedId = null;
+          markDirty();
+          SM.restart();
+        }, "is-quiet")]);
+
+        document.body.appendChild(panel);
+        ui.push(panel);
+        positionPanel(panel);
+        makeDraggable(panel, head);
+
+        var onKey = function (e) {
+          var t = e.target;
+          if (e.key !== "Escape" || (t && t.closest && t.closest(".smo-panel select"))) return;
+          closePanel();
+        };
+        document.addEventListener("keydown", onKey);
+        cleanups.push(function () { document.removeEventListener("keydown", onKey); });
+
+        if (cfg) rebuild();
+      }
+
+      // Next to the element (right, else left), kept on screen. A dragged position is kept.
+      function positionPanel(panel) {
+        var pw = panel.offsetWidth, ph = panel.offsetHeight, m = 12;
+        var vw = window.innerWidth, vh = window.innerHeight;
+        var left, top;
+        if (state.panelPos) {
+          left = state.panelPos.left; top = state.panelPos.top;
+        } else {
+          var r = anchorBox(sel).getBoundingClientRect();
+          if (r.right + m + pw <= vw - m) { left = r.right + m; top = r.top; }        // right of it
+          else if (r.left - m - pw >= m) { left = r.left - m - pw; top = r.top; }     // left of it
+          else { left = vw - pw - m; top = m; }                                       // no room: dock top-right
+        }
+        panel.style.left = Math.max(m, Math.min(left, vw - pw - m)) + "px";
+        panel.style.top = Math.max(m, Math.min(top, vh - ph - m)) + "px";
+      }
+
+      function makeDraggable(panel, handle) {
+        var start = null;
+        function move(e) {
+          if (!start) return;
+          var left = Math.max(0, Math.min(e.clientX - start.x, window.innerWidth - panel.offsetWidth));
+          var top = Math.max(0, Math.min(e.clientY - start.y, window.innerHeight - panel.offsetHeight));
+          panel.style.left = left + "px";
+          panel.style.top = top + "px";
+          state.panelPos = { left: left, top: top };
+        }
+        function up() {
+          start = null;
+          document.removeEventListener("pointermove", move, true);
+          document.removeEventListener("pointerup", up, true);
+        }
+        handle.addEventListener("pointerdown", function (e) {
+          if (e.button !== 0 || e.target.closest("button")) return;
+          e.preventDefault();
+          var r = panel.getBoundingClientRect();
+          start = { x: e.clientX - r.left, y: e.clientY - r.top };
+          document.addEventListener("pointermove", move, true);
+          document.addEventListener("pointerup", up, true);
+        });
+        cleanups.push(up);
+      }
+
+      function buildControls(row, actions) {
         function slider(label, key, min, max, step, fmt, hint) {
-          var wrap = document.createElement("span");
-          wrap.className = "mph-slider";
-          var input = document.createElement("input");
+          var wrap = make("span", "smo-slider");
+          var input = make("input");
           input.type = "range"; input.min = min; input.max = max; input.step = step; input.value = cfg[key];
-          var val = document.createElement("em");
+          var val = make("em");
           var show = function () { val.textContent = fmt(parseFloat(input.value)); };
           show();
           input.addEventListener("input", show);
@@ -428,7 +489,6 @@
         function select(label, key, options, hint) {
           row(label, selectEl(options, cfg[key], function (v) { cfg[key] = v; markDirty(); rebuild(); }), hint);
         }
-
         var secs = function (v) { return v + "s"; };
         var pct = function (v) { return Math.round(v * 100) + "%"; };
 
@@ -442,20 +502,18 @@
         select("Layout spot is", "home", [["start", "Path start (travel away)"], ["end", "Path end (travel in)"]],
           "Which end of the path is the block's normal Squarespace position");
 
-        var rot = document.createElement("input");
+        var rot = make("input");
         rot.type = "checkbox";
         rot.checked = cfg.autoRotate;
         rot.addEventListener("change", function () { cfg.autoRotate = rot.checked; markDirty(); rebuild(); });
         row("Auto-rotate", rot, "Turn to face the direction of travel");
         slider("Rotate offset", "rotateOffset", -180, 180, 5, function (v) { return v + "°"; });
 
-        var grid = document.createElement("span");
-        grid.className = "mph-anchor";
+        var grid = make("span", "smo-anchor");
         ANCHORS.forEach(function (a) {
-          var b = document.createElement("button");
+          var b = make("button", a === cfg.anchor ? "is-active" : "");
           b.type = "button";
           b.title = a;
-          b.classList.toggle("is-active", a === cfg.anchor);
           b.addEventListener("click", function () {
             cfg.anchor = a;
             grid.querySelectorAll("button").forEach(function (x) { x.classList.toggle("is-active", x === b); });
@@ -468,19 +526,21 @@
 
         actions([
           button("Replay", function () { tween.restart(true); }),
-          button("New A→B path", function () { rebuild(openPath()); }),
-          button("New loop path", function () { rebuild(loopPath()); })
+          button("New A→B path", function () { rebuild(starterPath(sel, "open")); }),
+          button("New loop path", function () { rebuild(starterPath(sel, "loop")); })
         ]);
       }
 
       return {
-        el: el,
+        el: sel,
         stop: function () {
           syncPath();                    // keep unsaved path edits for when the editor comes back
           if (helper) helper.kill();     // removes the path overlay and reverts the tween
           else if (tween) tween.revert();
           helper = tween = null;
-          panel.remove();
+          cleanups.forEach(function (fn) { fn(); });
+          ui.forEach(function (n) { n.remove(); });
+          document.querySelectorAll(".smo-hover").forEach(function (n) { n.classList.remove("smo-hover"); });
         }
       };
     }
@@ -488,10 +548,10 @@
 
   // Mark path drags as unsaved changes (the helper doesn't tell us directly).
   document.addEventListener("pointerup", function (e) {
-    if (e.target && e.target.closest && e.target.closest("svg.motion-path-helper, .motion-path-helper, [class*='path-editor']")) {
+    if (e.target && e.target.closest && e.target.closest("svg.motion-path-helper")) {
       state.dirty = true;
       state.status = "";
-      var s = document.querySelector(".mph-status");
+      var s = document.querySelector(".smo-status");
       if (s) { s.textContent = "Unsaved changes"; s.classList.add("is-dirty"); }
     }
   }, true);
@@ -504,36 +564,45 @@
   var style = document.createElement("style");
   style.textContent = [
     ".copy-motion-path{display:none!important}",
-    ".mph-panel{position:fixed;top:80px;right:12px;z-index:10000;width:290px;max-height:calc(100vh - 100px);overflow:auto;padding:10px 12px;border-radius:10px;background:rgba(20,20,20,.92);color:#fff;font:12px/1.3 system-ui,-apple-system,sans-serif;box-shadow:0 6px 24px rgba(0,0,0,.25)}",
-    ".mph-panel *{box-sizing:border-box;font:inherit;color:inherit;letter-spacing:normal;text-transform:none}",
-    ".mph-head{display:flex;justify-content:space-between;align-items:center}",
-    ".mph-head button{all:unset;cursor:pointer;padding:0 6px;font-size:16px}",
-    ".mph-panel.is-collapsed .mph-body{display:none}",
-    ".mph-body{display:flex;flex-direction:column;gap:8px;margin-top:10px}",
-    ".mph-layout{padding:4px 8px;border-radius:4px;background:rgba(255,59,107,.2);color:#ffc2d1}",
-    ".mph-note{margin:0;opacity:.7}",
-    ".mph-row{display:grid;grid-template-columns:92px 1fr;align-items:center;gap:8px;margin:0}",
-    ".mph-row>span:first-child{opacity:.75}",
-    ".mph-slider{display:flex;align-items:center;gap:6px}",
-    ".mph-slider input{flex:1;min-width:0;accent-color:#ff3b6b}",
-    ".mph-slider em{font-style:normal;flex:0 0 40px;text-align:right;opacity:.85}",
-    ".mph-panel select{width:100%;padding:3px 4px;border-radius:4px;border:0;background:#333}",
-    ".mph-panel input[type=checkbox]{justify-self:start;accent-color:#ff3b6b;width:16px;height:16px}",
-    ".mph-anchor{display:grid;grid-template-columns:repeat(3,18px);gap:4px}",
-    ".mph-anchor button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:3px;background:rgba(255,255,255,.18)}",
-    ".mph-anchor button.is-active{background:#ff3b6b}",
-    ".mph-actions{display:flex;flex-wrap:wrap;gap:4px}",
-    ".mph-actions button{all:unset;cursor:pointer;padding:5px 8px;border-radius:4px;background:rgba(255,255,255,.14)}",
-    ".mph-actions button:hover{background:rgba(255,255,255,.28)}",
-    ".mph-actions button[disabled]{opacity:.5;cursor:default}",
-    ".mph-actions button[hidden]{display:none}",
-    ".mph-panel .mph-actions button.is-primary{background:#ff3b6b}",
-    ".mph-panel .mph-actions button.is-quiet{background:none;opacity:.6;padding-left:0}",
-    ".mph-save{display:flex;flex-direction:column;gap:6px;padding-top:8px;border-top:1px solid rgba(255,255,255,.15)}",
-    ".mph-status{margin:0;opacity:.8}",
-    ".mph-status.is-dirty{color:#ffd166;opacity:1}",
-    ".mph-panel textarea{width:100%;resize:vertical;padding:6px;border:0;border-radius:4px;background:#111;font:11px/1.35 ui-monospace,Menlo,monospace}",
-    ".mph-panel textarea[hidden]{display:none}"
+    ".smo-panel,.smo-bar,.smo-badge{font:12px/1.3 system-ui,-apple-system,sans-serif;color:#fff;box-sizing:border-box}",
+    ".smo-panel *,.smo-bar *{box-sizing:border-box;font:inherit;color:inherit;letter-spacing:normal;text-transform:none}",
+    /* badges */
+    ".smo-badge{all:unset;position:absolute;z-index:10001;width:18px;height:18px;border-radius:50%;background:#1f1f1f;color:#fff;display:flex;align-items:center;justify-content:center;font-size:14px;line-height:1;cursor:pointer;box-shadow:0 0 0 2px #fff,0 1px 4px rgba(0,0,0,.3)}",
+    ".smo-badge:hover{transform:scale(1.15)}",
+    ".smo-badge.is-animated{background:#ff3b6b}",
+    ".smo-badge.is-selected{box-shadow:0 0 0 2px #fff,0 0 0 5px #ff3b6b}",
+    ".smo-badge[disabled]{opacity:.35;cursor:default;transform:none}",
+    ".smo-hover{outline:2px dashed #ff3b6b!important;outline-offset:4px!important}",
+    /* save bar */
+    ".smo-bar{position:fixed;right:12px;bottom:12px;z-index:10003;display:flex;flex-wrap:wrap;align-items:center;gap:8px;max-width:calc(100vw - 24px);padding:8px 10px;border-radius:10px;background:rgba(20,20,20,.92);box-shadow:0 6px 24px rgba(0,0,0,.25)}",
+    ".smo-status{opacity:.8}",
+    ".smo-status.is-dirty{color:#ffd166;opacity:1}",
+    ".smo-bar button,.smo-actions button{all:unset;cursor:pointer;padding:5px 9px;border-radius:4px;background:rgba(255,255,255,.14)}",
+    ".smo-bar button:hover,.smo-actions button:hover{background:rgba(255,255,255,.28)}",
+    ".smo-bar button[disabled]{opacity:.5;cursor:default}",
+    ".smo-bar button[hidden],.smo-bar textarea[hidden]{display:none}",
+    ".smo-bar .is-primary{background:#ff3b6b}",
+    ".smo-bar .is-quiet,.smo-actions .is-quiet{background:none;opacity:.65}",
+    ".smo-bar textarea{flex-basis:100%;resize:vertical;padding:6px;border:0;border-radius:4px;background:#111;font:11px/1.35 ui-monospace,Menlo,monospace}",
+    /* element panel */
+    ".smo-panel{position:fixed;z-index:10002;width:290px;max-height:calc(100vh - 24px);overflow:auto;border-radius:10px;background:rgba(20,20,20,.94);box-shadow:0 6px 24px rgba(0,0,0,.3)}",
+    ".smo-head{display:flex;align-items:center;gap:8px;padding:9px 10px 9px 12px;cursor:move;border-bottom:1px solid rgba(255,255,255,.12)}",
+    ".smo-layout{flex:1;opacity:.6;font-size:11px}",
+    ".smo-close{all:unset;cursor:pointer;padding:0 4px;opacity:.7}",
+    ".smo-close:hover{opacity:1}",
+    ".smo-body{display:flex;flex-direction:column;gap:8px;padding:10px 12px 12px}",
+    ".smo-note{margin:0;opacity:.7}",
+    ".smo-row{display:grid;grid-template-columns:92px 1fr;align-items:center;gap:8px;margin:0}",
+    ".smo-row>span:first-child{opacity:.75}",
+    ".smo-slider{display:flex;align-items:center;gap:6px}",
+    ".smo-slider input{flex:1;min-width:0;accent-color:#ff3b6b}",
+    ".smo-slider em{font-style:normal;flex:0 0 40px;text-align:right;opacity:.85}",
+    ".smo-panel select{width:100%;padding:3px 4px;border-radius:4px;border:0;background:#333}",
+    ".smo-panel input[type=checkbox]{justify-self:start;accent-color:#ff3b6b;width:16px;height:16px}",
+    ".smo-anchor{display:grid;grid-template-columns:repeat(3,18px);gap:4px}",
+    ".smo-anchor button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:3px;background:rgba(255,255,255,.18)}",
+    ".smo-anchor button.is-active{background:#ff3b6b}",
+    ".smo-actions{display:flex;flex-wrap:wrap;gap:4px}"
   ].join("\n");
   document.head.appendChild(style);
 })();

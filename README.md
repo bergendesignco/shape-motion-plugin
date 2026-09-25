@@ -21,11 +21,13 @@ Add **one line** to **Settings → Advanced → Code Injection → Footer**:
 
 ## Using the editor
 
-Open a page in the Squarespace editor (not in Edit mode). The **Shape Motion** panel appears top-right,
-only for you. Visitors never see it.
+Open a page in the Squarespace editor (not in Edit mode). Only you see the editor. Visitors never do.
 
-1. **Element:** pick a shape block (● = has an animation) and click **Add animation**.
-2. **Edit the path** on the page:
+1. **Badges:** every shape block gets a small badge in its top-left corner. **+** means no animation
+   yet, and a pink dot means it's animated. Hover a badge to outline its block.
+2. **Click a badge** to open that element's panel (clicking **+** adds a starter animation first). The
+   panel opens next to the element. Drag it by its header, and close it with ✕ or Esc.
+3. **Edit the path** on the page:
 
    | Action | How |
    |---|---|
@@ -36,13 +38,15 @@ only for you. Visitors never see it.
    | Bend one side only | Option/Alt-drag a handle |
    | Undo | Cmd/Ctrl+Z |
 
-3. **Adjust settings:** duration, ease, playback, start/end, anchor point and so on.
-4. **Phones:** switch the editor to **Mobile** view and choose **On phones**: Off (default), Same as
-   desktop, or Own settings.
-5. **Save to page** writes the settings into this page's **Page Header Code Injection**. Only the
-   Shape Motion block in that box is replaced, and anything else there is kept. **Undo last save**
-   puts it back. **Copy code** is the manual fallback: paste into Page Settings → Advanced → Page
-   Header Code Injection.
+4. **Adjust settings** in the panel: duration, ease, playback, start/end, anchor point and so on.
+   **Remove animation** is at the bottom.
+5. **Phones:** switch the editor to **Mobile** view. The panel's **On phones** option picks Off
+   (default), Same as desktop, or Own settings.
+6. **Save** (in the bar, bottom-right) writes every element's settings on this page into its **Page
+   Header Code Injection** in one go. Only the Shape Motion block in that box is replaced, and anything
+   else there is kept. **Undo save** puts it back. **Copy** is the manual fallback: paste into Page
+   Settings → Advanced → Page Header Code Injection. If saved settings point at blocks that no longer
+   exist, the bar offers **Clean up**.
 
 While Edit mode is on, all animations stop so you can drag and resize blocks.
 
@@ -126,7 +130,7 @@ python3 dev-server.py
 
 - <http://localhost:8765/svg-test-page-motionpath.html>: the page as a **visitor** sees it.
 - <http://localhost:8765/sim/config/>: the page inside a **simulated Squarespace editor**, with a
-  working (mock) **Save to page**.
+  working (mock) **Save**.
 
 The mock keeps its state in `.dev-store.json`. Delete it to reset. It rejects the mistakes that lose
 data on the real site (partial objects, wrong page, changed SEO fields).

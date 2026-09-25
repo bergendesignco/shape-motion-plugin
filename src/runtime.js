@@ -37,8 +37,7 @@
     SETTING_KEYS: SETTING_KEYS,
     DEFAULT_SETTINGS: DEFAULT_SETTINGS,
     data: { page: { version: 1, elements: {} }, site: { version: 1, elements: {} } },
-    editor: null,     // set by editor.js
-    editingId: null,  // element the editor is animating itself (runtime skips it)
+    editor: null,     // set by editor.js: { editingId(), start(phone) }
     gsap: null
   };
 
@@ -159,9 +158,10 @@
     }
     var phone = SM.isPhone();
     var els = SM.elements();
+    var editingId = SM.editor ? SM.editor.editingId() : null;
     running = [];
     Object.keys(els).forEach(function (id) {
-      if (SM.editor && id === SM.editingId) return; // the editor animates this one itself
+      if (id === editingId) return; // the editor animates this one itself
       var el = document.getElementById(id); // looked up fresh: Squarespace can re-render blocks
       var s = el && SM.settingsFor(els[id], phone);
       if (!s) return;

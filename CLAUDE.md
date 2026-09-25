@@ -39,8 +39,11 @@ See README.md for usage and the CONFIG reference.
 - `runtime.js` → `window.ShapeMotion`: reads the tags, `elements()` merges site+page, `settingsFor()`,
   `buildTween()`, `restart()`. It loads GSAP/MotionPath (+ MotionPathHelper + editor.js when editing)
   only when needed. A MutationObserver on body class + the 767px query call `refresh()`.
-- `editor.js` sets `ShapeMotion.editor.start(phone)` → `{el, stop}`. It animates the selected element
-  itself (`ShapeMotion.editingId`, which the runtime skips). Panel state survives restarts in `state`.
+- `editor.js` sets `ShapeMotion.editor = { editingId(), start(phone) → {el, stop} }`. UI: a badge per
+  shape block (placed from the non-animated `.fe-block` container), a floating draggable panel for the
+  selected element only, and a save bar. The editor animates the selected element itself. The runtime
+  asks `editingId()` BEFORE starting tweens so it isn't animated twice. State survives restarts in
+  `state` (selectedId, panelPos, dirty). No element names/dropdowns: users click the element's badge.
   Save = GET → replace the marked block in `headerInjectCode` → POST (docs/squarespace-saving.md).
 - `legacy/motionpath-helper-snippet.html` is the old single-shape paste-in snippet (not maintained).
 
