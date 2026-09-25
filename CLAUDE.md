@@ -16,6 +16,13 @@ See README.md for usage and the CONFIG reference.
 - Only one `gsap.min.js` per page, and plugin versions must match the core version.
 - Don't use `innerHTML` (a security hook blocks it). Build the DOM with `createElement` / `textContent`.
 
+## Repo / direction
+- GitHub: https://github.com/bergendesignco/shape-motion-plugin (public; served by jsDelivr `gh/`).
+- Direction and order: ROADMAP.md. Saving to Squarespace: docs/squarespace-saving.md (GET→merge→POST,
+  marker-safe, never post partial objects).
+- The GSAP and schema Chrome extensions are **reference only**: read their docs/code for Squarespace
+  knowledge, never import from them or change them.
+
 ## Workflow
 - Edit `motionpath-helper-snippet.html`, then run `python3 build-test-page.py` and serve with
   `python3 -m http.server 8765` (also configured in `.claude/launch.json` as `static`).

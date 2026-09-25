@@ -1,5 +1,7 @@
 # TODO
 
+The big picture and order are in [ROADMAP.md](ROADMAP.md). Save research: [docs/squarespace-saving.md](docs/squarespace-saving.md).
+
 ## Up next
 - [x] **Disable in Squarespace edit mode.** Watches the site `<body>` for `sqs-edit-mode-active` /
       `sqs-is-page-editing` and stops/restarts. Tested in `sim/config/` and on the real
@@ -15,15 +17,14 @@
       Tested in `sim/config/` and at live widths. Approved by the user (2026-09-24).
 - [ ] **Rethink panel controls and wording.** The user isn't sold on the current controls/labels
       (2026-09-24). Revisit layout, naming and grouping once the feature set settles.
-- [ ] **Save straight to the site (no copy/paste).** A "Save to site" button that writes the current
-      CONFIG into the footer Code Injection. It could work from the snippet itself: it runs same-origin
-      inside the editor for a logged-in owner. Squarespace has internal (undocumented) endpoints
-      `GET /api/config/GetInjectionSettings?crumb=…` and `POST /api/config/SaveInjectionSettings?crumb=…`
-      (crumb = CSRF cookie). Noted from the separate gsap-sqsp-extension docs; verify on a test site before relying
-      on them. Must be read-modify-write: replace only the CONFIG block between clear markers
-      (e.g. `/* CONFIG START */ … /* CONFIG END */`), never the rest of the footer. Show a diff/confirm
-      step before saving and keep the previous footer for undo. Internal API can change, so keep
-      Copy code as the fallback.
+- [ ] **CDN + save straight to the site (next).** Plugin on jsDelivr from this repo. Settings saved as
+      marked JSON tags to the page header injection (page elements) or site-wide injection
+      (header/footer elements). Endpoints and safety rules: `docs/squarespace-saving.md`.
+- [ ] **Scroll triggers (after CDN/saving and detection).** Per-layout `trigger`: `"load"` (default,
+      current behavior), `"view"` (play when it scrolls into view), `"scroll"` (scrubbed by scroll). Use the
+      block's `.fe-block` parent as the trigger element, not the animated block. Refresh after load. In the
+      editor, keep the looping preview for path editing and add a "Preview scroll" toggle that runs the
+      visitor version. Ship `"view"` first, then `"scroll"`.
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site
@@ -35,7 +36,6 @@
       The rectangle shape uses a CSS-sized `<rect>` (no numeric attributes) and needs special handling.
 
 ## Backlog (from README)
-- [ ] Start on scroll into view, or scrub with scroll (ScrollTrigger)
 - [ ] Multiple shapes, each with its own editor and controls
 - [ ] Shape picker: click a shape on the page to edit it
 - [ ] Auto-save config (e.g. localStorage) instead of copy/paste
