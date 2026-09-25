@@ -131,6 +131,14 @@
       off.push(function () { box.removeEventListener(type, fn); });
     }
 
+    if ((trigger === "appear" || trigger === "scroll") && SM.inSquarespaceEditor()) {
+      // Scrolling inside the Squarespace editor frame isn't the real page scroll (GSAP extension QA
+      // matrix T-047a), so scroll positions come out wrong there. Hold at the start of the path;
+      // the editor panel previews these with its own controls.
+      tween = SM.buildTween(el, c, { repeat: 0, yoyo: false, paused: true, immediateRender: true });
+      return function stop() { tween.revert(); };
+    }
+
     if ((trigger === "appear" || trigger === "scroll") && !ST) {
       console.warn("[shape motion] ScrollTrigger not loaded; playing on load instead");
       trigger = "load";
@@ -154,8 +162,9 @@
         repeat: 0, yoyo: false, delay: 0, immediateRender: true,
         scrollTrigger: {
           trigger: box,
-          start: "top bottom",
-          end: c.scrollRange === "center" ? "center center" : "bottom top",
+          // clamp(): a shape already on screen at the top of the page starts at the start of its path
+          start: "clamp(top bottom)",
+          end: c.scrollRange === "center" ? "clamp(center center)" : "clamp(bottom top)",
           scrub: c.scrub > 0 ? c.scrub : true
         }
       });
@@ -197,6 +206,7 @@
   };
 
   // Running inside the Squarespace editor (iframe#sqs-site-frame on a /config page).
+  SM.inSquarespaceEditor = inSquarespaceEditor;
   function inSquarespaceEditor() {
     if (window.top === window.self) return false;
     try {

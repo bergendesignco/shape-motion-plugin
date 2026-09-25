@@ -24,8 +24,10 @@
   }
   var TRIGGER_HELP = {
     load: "Plays as soon as the page loads.",
-    appear: "Scroll down until the shape comes into view. Scroll-based triggers can act oddly inside the Squarespace editor, so check the live page too.",
-    scroll: "Scroll the page: the shape moves along its path as you scroll. Scroll-based triggers can act oddly inside the Squarespace editor, so check the live page too.",
+    appear: "Playing it as if the shape just scrolled into view. The real scroll timing only works on the live page, so check it there.",
+    appearLive: "Scroll down until the shape comes into view.",
+    scroll: "Drag the slider to see where the shape sits at each point of the scroll. The real scrolling only works on the live page, so check it there.",
+    scrollLive: "Scroll the page: the shape moves along its path as you scroll.",
     hover: "Hover over the shape (or its spot).",
     click: "Click the shape (or its spot)."
   };
@@ -501,15 +503,43 @@
         document.addEventListener("keydown", onKey);
         cleanups.push(function () { document.removeEventListener("keydown", onKey); });
 
-        if (cfg && state.testing) testStop = SM.animate(sel, cfg); // the real visitor behavior
+        if (cfg && state.testing && simulatedScrollTest()) {
+          // Scroll: scrubbed by the slider. Appear: plays as if it just came into view.
+          tween = SM.buildTween(sel, cfg, cfg.trigger === "scroll" ? { repeat: 0, yoyo: false, delay: 0, paused: true, immediateRender: true } : {});
+        } else if (cfg && state.testing) testStop = SM.animate(sel, cfg); // the real visitor behavior
         else if (cfg) rebuild();
       }
 
 
+      // Inside the Squarespace editor, appear/scroll can't use real scrolling: simulate them here.
+      function simulatedScrollTest() {
+        return (cfg.trigger === "appear" || cfg.trigger === "scroll") && SM.inSquarespaceEditor();
+      }
+
       function buildTestMode(body, note, actions) {
+        var sim = simulatedScrollTest();
         body.appendChild(make("div", "smo-testing", "Testing trigger: " + triggerLabel(cfg.trigger)));
-        note(TRIGGER_HELP[cfg.trigger] || "");
-        actions([button("← Back to editing the path", function () { state.testing = false; SM.restart(); }, "is-primary")]);
+        note(TRIGGER_HELP[sim ? cfg.trigger : cfg.trigger + "Live"] || TRIGGER_HELP[cfg.trigger] || "");
+        var acts = [];
+        if (sim && cfg.trigger === "scroll") {
+          var wrap = make("span", "smo-slider");
+          var input = make("input");
+          input.type = "range"; input.min = 0; input.max = 1; input.step = 0.01; input.value = 0;
+          var val = make("em", null, "0%");
+          input.addEventListener("input", function () {
+            val.textContent = Math.round(input.value * 100) + "%";
+            if (tween) tween.progress(parseFloat(input.value));
+          });
+          wrap.appendChild(input);
+          wrap.appendChild(val);
+          var r = make("div", "smo-row");
+          r.appendChild(make("span", null, "Scroll position"));
+          r.appendChild(wrap);
+          body.appendChild(r);
+        }
+        if (sim && cfg.trigger === "appear") acts.push(button("Play again", function () { if (tween) tween.restart(true); }));
+        acts.push(button("← Back to editing the path", function () { state.testing = false; SM.restart(); }, "is-primary"));
+        actions(acts);
       }
 
       // Next to the element (right, else left), kept on screen. A dragged position is kept.

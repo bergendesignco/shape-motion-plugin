@@ -51,8 +51,12 @@ Open a page in the Squarespace editor (not in Edit mode). Only you see the edito
 
    Hover and click listen on the block's spot (its layout box), so the shape moving away from the
    cursor doesn't cancel the hover. **Test trigger** swaps the looping path preview for the real
-   behavior; **← Back to editing the path** returns. Scroll-based triggers can act oddly inside the
-   Squarespace editor, so check them on the live page. **Remove animation** is at the bottom.
+   behavior; **← Back to editing the path** returns. Scrolling inside the Squarespace editor isn't the
+   real page scroll, so in the editor **appear** and **scroll** shapes sit still at the start of their
+   path. Test trigger simulates them instead: a **Scroll position** slider for scroll-driven, **Play
+   again** for appear. Check the real scrolling on the live page. Scroll-driven uses `clamp()`, so a
+   shape already on screen at the top of the page starts at the start of its path and finishes by the
+   time the page can't scroll any further. **Remove animation** is at the bottom.
 5. **Phones:** switch the editor to **Mobile** view. The panel's **On phones** option picks Off
    (default), Same as desktop, or Own settings.
 6. **Save** (in the bar, bottom-right) writes every element's settings on this page into its **Page

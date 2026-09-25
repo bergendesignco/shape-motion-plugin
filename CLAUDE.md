@@ -59,7 +59,13 @@ See README.md for usage and the CONFIG reference.
   off to the side.
 - GSAP extension findings (dev/content.js, src/v2/runtime/library.js, docs QA matrix T-047a): default
   appear start `top 85%`; its editor preview strips scrollTrigger; scroll inside the Squarespace
-  editor can be unreliable, so verify scroll/appear on the live page.
+  editor is not the real page scroll.
+- Confirmed on the real editor (2026-09-25): a scroll-driven shape jumped to the END of its path inside
+  the editor. So when `SM.inSquarespaceEditor()`, appear/scroll hold at the path start (no ScrollTrigger)
+  and the panel's Test trigger simulates them (scroll = progress slider, appear = play). Hover/click
+  run for real in the editor (confirmed working by the user).
+- Scroll-driven uses `start: "clamp(top bottom)"` / `end: "clamp(bottom top)"` so shapes visible at load
+  start at progress 0.
 
 ## Page facts (from the saved page)
 - 6 shape blocks in section 1: rectangle (`block-yui_3_17_2_1_1790263224900_423`), narrow-pow,
