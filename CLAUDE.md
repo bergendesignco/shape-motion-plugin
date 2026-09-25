@@ -11,8 +11,10 @@ See README.md for usage and the CONFIG reference.
   layout (e.g. MotionPathHelper overlays) waits for window `load`.
 - Target shape blocks with **`[data-sqsp-block="shape"]`** (plus the block `id` when targeting one).
   Shape name is on a descendant: `[data-shape-name]`.
-- Deliverable is a single paste-in snippet: plain ES5-style vanilla JS, no build step, no modules.
-  CDN only: `cdn.jsdelivr.net/npm/gsap@3.14.1/dist/...`.
+- Deliverable: `src/runtime.js` + `src/editor.js`, served by jsDelivr from tagged releases
+  (`gh/bergendesignco/shape-motion-plugin@vX.Y.Z/src/runtime.js`). Plain ES5-style vanilla JS (fetch and
+  Promise are fine), no build step, no modules. GSAP from `cdn.jsdelivr.net/npm/gsap@3.14.1/dist/`, and the
+  site's own GSAP is reused if present.
 - Only one `gsap.min.js` per page, and plugin versions must match the core version.
 - Don't use `innerHTML` (a security hook blocks it). Build the DOM with `createElement` / `textContent`.
 
@@ -24,19 +26,23 @@ See README.md for usage and the CONFIG reference.
   knowledge, never import from them or change them.
 
 ## Workflow
-- Edit `motionpath-helper-snippet.html`, then run `python3 build-test-page.py` and serve with
-  `python3 -m http.server 8765` (also configured in `.claude/launch.json` as `static`).
+- Edit `src/*.js`, run `python3 build-test-page.py`, and serve with `python3 dev-server.py` (port 8765,
+  `.claude/launch.json` → `dev`). The dev server mocks GetCollectionSettings/SaveCollectionSettings
+  (state in `.dev-store.json`) and injects the saved header code into the test page.
 - Never edit `svg-test-page.html`. It's the fixture. When the user sends a new saved page, replace it.
 - Verify three contexts: visitor (`/svg-test-page-motionpath.html`), editor (`/sim/config/`), and
   Edit mode on/off (the sim's Edit button). Observer callbacks are async, so wait before asserting.
 
-## Code layout (snippet)
-- `CONFIG = { block, desktop: {settings}, mobile: "off" | "same" | {settings} }`. A legacy flat config
-  is normalized at load. `settingsFor(phone)` picks the settings (null = stay still).
-- `start()` / `stop()` / `restart()`: a MutationObserver on body class plus the 767px media query call
-  `refresh()`, which restarts only when the edit or phone state actually changes.
-- `startEditor(el, phone)` builds the panel for the current layout and returns `{stop}`. The panel is
-  rebuilt on every restart (collapsed state is kept in `panelCollapsed`).
+## Code layout
+- Settings live in `<script type="application/json" data-shape-motion="page|site">` tags:
+  `{ version: 1, elements: { "<element id>": { desktop: {settings}, mobile: "off"|"same"|{settings} } } }`.
+- `runtime.js` → `window.ShapeMotion`: reads the tags, `elements()` merges site+page, `settingsFor()`,
+  `buildTween()`, `restart()`. It loads GSAP/MotionPath (+ MotionPathHelper + editor.js when editing)
+  only when needed. A MutationObserver on body class + the 767px query call `refresh()`.
+- `editor.js` sets `ShapeMotion.editor.start(phone)` → `{el, stop}`. It animates the selected element
+  itself (`ShapeMotion.editingId`, which the runtime skips). Panel state survives restarts in `state`.
+  Save = GET → replace the marked block in `headerInjectCode` → POST (docs/squarespace-saving.md).
+- `legacy/motionpath-helper-snippet.html` is the old single-shape paste-in snippet (not maintained).
 
 ## Page facts (from the saved page)
 - 6 shape blocks in section 1: rectangle (`block-yui_3_17_2_1_1790263224900_423`), narrow-pow,

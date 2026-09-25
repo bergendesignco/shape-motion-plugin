@@ -25,7 +25,7 @@ Squarespace editor and its save endpoints work) but shares no code with them.
   with copy/paste as the fallback.
 
 ## Order
-1. **CDN + saving** ← next
+1. **CDN + saving** ← built on `feature/cdn-saving`, awaiting a real-site test
    - Split the current snippet into `src/runtime.js` (visitor) and `src/editor.js` (editor), with no
      build step.
    - Runtime reads the settings tags (page + site). The current single-square `CONFIG` becomes the

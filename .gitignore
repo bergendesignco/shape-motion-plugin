@@ -6,3 +6,4 @@ _prod-check.html
 
 # editor saves (DevTools copies incl. the iframe #document) contain account email/IDs; keep local
 *-editor.html
+.dev-store.json
