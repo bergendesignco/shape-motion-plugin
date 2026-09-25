@@ -23,11 +23,20 @@
   var EDITOR_OFF = SCRIPT && SCRIPT.getAttribute("data-editor") === "off";
 
   var SETTING_KEYS = ["path", "duration", "delay", "ease", "playback", "repeatDelay", "start", "end",
-    "home", "autoRotate", "rotateOffset", "anchor"];
+    "home", "autoRotate", "rotateOffset", "anchor",
+    "trigger", "appearAt", "replay", "scrub", "scrollRange", "hoverLeave", "clickMode"];
   var DEFAULT_SETTINGS = {
     path: "M0,0 C100,-60 200,60 300,0",
     duration: 4, delay: 0, ease: "power1.inOut", playback: "yoyo", repeatDelay: 0.5,
-    start: 0, end: 1, home: "start", autoRotate: false, rotateOffset: 0, anchor: "0% 0%"
+    start: 0, end: 1, home: "start", autoRotate: false, rotateOffset: 0, anchor: "0% 0%",
+    // trigger: "load" | "appear" | "scroll" | "hover" | "click" (older settings without it = "load")
+    trigger: "load",
+    appearAt: "top 85%",   // appear: ScrollTrigger start (block top vs. viewport)
+    replay: "once",        // appear: "once" | "every" | "reverse"
+    scrub: 0.5,            // scroll: smoothing in seconds (0 = locked to the scrollbar)
+    scrollRange: "cross",  // scroll: "cross" (enters bottom -> leaves top) | "center" (enters bottom -> middle)
+    hoverLeave: "reverse", // hover: "reverse" (go back) | "finish"
+    clickMode: "toggle"    // click: "toggle" (there and back) | "replay"
   };
 
   var SM = window.ShapeMotion = {
@@ -74,11 +83,12 @@
     return null;
   };
 
-  SM.buildTween = function (el, c) {
+  // The motion tween itself. `extra` overrides/adds tween vars (used by triggers).
+  SM.buildTween = function (el, c, extra) {
     var gsap = SM.gsap;
     var toHome = c.home === "end";
     gsap.set(el, { transformOrigin: c.anchor });
-    return gsap.to(el, {
+    var vars = {
       motionPath: {
         path: c.path,
         start: toHome ? c.end : c.start,
@@ -91,7 +101,90 @@
       repeat: c.playback === "once" ? 0 : -1,
       yoyo: c.playback === "yoyo",
       repeatDelay: c.repeatDelay
-    });
+    };
+    Object.keys(extra || {}).forEach(function (k) { vars[k] = extra[k]; });
+    return gsap.to(el, vars);
+  };
+
+  // The block's layout box. It doesn't move when the block is animated, so it's the stable target
+  // for scroll positions and hover/click (events on the moving block bubble up to it too).
+  SM.anchorBox = function (el) {
+    return el.closest(".fe-block") || el.parentElement || el;
+  };
+
+  SM.needsScrollTrigger = function (c) {
+    var t = c && c.trigger;
+    return t === "appear" || t === "scroll";
+  };
+
+  // Run one element's animation with its trigger. Returns a stop() that undoes everything.
+  SM.animate = function (el, c) {
+    var gsap = SM.gsap;
+    var ST = window.ScrollTrigger;
+    var trigger = c.trigger || "load";
+    var box = SM.anchorBox(el);
+    var single = { repeat: 0, yoyo: false }; // hover/click/scroll make one trip along the path
+    var tween, st, off = [];
+
+    function listen(type, fn) {
+      box.addEventListener(type, fn);
+      off.push(function () { box.removeEventListener(type, fn); });
+    }
+
+    if ((trigger === "appear" || trigger === "scroll") && !ST) {
+      console.warn("[shape motion] ScrollTrigger not loaded; playing on load instead");
+      trigger = "load";
+    }
+
+    if (trigger === "appear") {
+      // Sit at the start of the path until it scrolls into view, then play (with its playback setting).
+      tween = SM.buildTween(el, c, { paused: true, immediateRender: true });
+      var replay = c.replay || "once";
+      st = ST.create({
+        trigger: box,
+        start: c.appearAt || "top 85%",
+        once: replay === "once",
+        onEnter: function () { tween.restart(true); },
+        onEnterBack: replay === "every" ? function () { tween.restart(true); } : null,
+        onLeaveBack: replay === "reverse" ? function () { tween.reverse(); } : null
+      });
+    } else if (trigger === "scroll") {
+      // Scroll position drives progress along the path.
+      tween = SM.buildTween(el, c, {
+        repeat: 0, yoyo: false, delay: 0, immediateRender: true,
+        scrollTrigger: {
+          trigger: box,
+          start: "top bottom",
+          end: c.scrollRange === "center" ? "center center" : "bottom top",
+          scrub: c.scrub > 0 ? c.scrub : true
+        }
+      });
+    } else if (trigger === "hover") {
+      tween = SM.buildTween(el, c, { repeat: 0, yoyo: false, paused: true, immediateRender: true });
+      listen("mouseenter", function () {
+        if (c.hoverLeave === "finish" && tween.progress() === 1) tween.restart(true);
+        else tween.play();
+      });
+      if (c.hoverLeave !== "finish") listen("mouseleave", function () { tween.reverse(); });
+    } else if (trigger === "click") {
+      tween = SM.buildTween(el, c, { repeat: 0, yoyo: false, paused: true, immediateRender: true });
+      var forward = false;
+      box.style.cursor = "pointer";
+      off.push(function () { box.style.cursor = ""; });
+      listen("click", function () {
+        if (c.clickMode === "replay") { tween.restart(true); return; }
+        forward = !forward;
+        if (forward) tween.play(); else tween.reverse();
+      });
+    } else {
+      tween = SM.buildTween(el, c);
+    }
+
+    return function stop() {
+      off.forEach(function (fn) { fn(); });
+      if (st) st.kill();
+      tween.revert(); // also kills a scrollTrigger attached to the tween
+    };
   };
 
   /* ---------------- Squarespace context ---------------- */
@@ -165,10 +258,15 @@
       var el = document.getElementById(id); // looked up fresh: Squarespace can re-render blocks
       var s = el && SM.settingsFor(els[id], phone);
       if (!s) return;
-      var tween = SM.buildTween(el, s);
-      running.push({ el: el, stop: function () { tween.revert(); } });
+      running.push({ el: el, stop: SM.animate(el, s) });
     });
-    if (SM.editor) running.push(SM.editor.start(phone));
+    if (SM.editor) {
+      try {
+        running.push(SM.editor.start(phone));
+      } catch (e) {
+        console.error("[shape motion] editor failed; visitor animations still run", e);
+      }
+    }
   }
 
   function stop() {
@@ -209,11 +307,22 @@
     var list = [];
     if (!window.gsap) list.push(GSAP_CDN + "gsap.min.js"); // reuse the site's GSAP if it has one
     if (!window.MotionPathPlugin) list.push(GSAP_CDN + "MotionPathPlugin.min.js");
+    // ScrollTrigger only when a saved animation uses appear/scroll (or the editor might need it).
+    var els = SM.elements();
+    var needST = editor || Object.keys(els).some(function (id) {
+      return SM.needsScrollTrigger(els[id].desktop) || SM.needsScrollTrigger(typeof els[id].mobile === "object" ? els[id].mobile : null);
+    });
+    if (needST && !window.ScrollTrigger) list.push(GSAP_CDN + "ScrollTrigger.min.js");
     if (editor) list.push(GSAP_CDN + "MotionPathHelper.min.js", BASE + "editor.js");
 
     loadSequence(list).then(function () {
       SM.gsap = window.gsap; // keep our own reference in case another copy of GSAP replaces the global
       SM.gsap.registerPlugin(window.MotionPathPlugin);
+      if (window.ScrollTrigger) {
+        SM.gsap.registerPlugin(window.ScrollTrigger);
+        // Images/fonts shift the layout after DOMContentLoaded: re-measure trigger positions.
+        if (document.readyState !== "complete") window.addEventListener("load", function () { window.ScrollTrigger.refresh(); });
+      }
       if (editor && !SM.editor) console.warn("[shape motion] editor didn't load");
 
       // Restart whenever Edit mode or the device view (desktop/phone) changes.

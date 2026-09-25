@@ -35,6 +35,6 @@ Squarespace editor and its save endpoints work) but shares no code with them.
    - Tag `v0.1.0`, give the user the one-line install.
 2. **Detection + indicators:** shape-block badges + per-element panel are done (pulled into step 1). Next: then SVGs in code blocks. Click an element to add or
    edit its animation. Many elements per page.
-3. **Features** as per-element settings: scroll (see the scroll plan in TODO.md), then MorphSVG, …
+3. **Features** as per-element settings: triggers (load/appear/scroll/hover/click) ← in progress, then MorphSVG, …
 
 Each step goes on its own branch and gets tested on the real site before it's merged.

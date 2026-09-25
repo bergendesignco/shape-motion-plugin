@@ -20,11 +20,12 @@ The big picture and order are in [ROADMAP.md](ROADMAP.md). Save research: [docs/
 - [x] **CDN + save straight to the site.** Released v0.1.0; saving 2 animations on 2 blocks verified on the demo site (2026-09-25). Plugin on jsDelivr from this repo. Settings saved as
       marked JSON tags to the page header injection (page elements) or site-wide injection
       (header/footer elements). Endpoints and safety rules: `docs/squarespace-saving.md`.
-- [ ] **Scroll triggers (after CDN/saving and detection).** Per-layout `trigger`: `"load"` (default,
-      current behavior), `"view"` (play when it scrolls into view), `"scroll"` (scrubbed by scroll). Use the
-      block's `.fe-block` parent as the trigger element, not the animated block. Refresh after load. In the
-      editor, keep the looping preview for path editing and add a "Preview scroll" toggle that runs the
-      visitor version. Ship `"view"` first, then `"scroll"`.
+- [x] **Triggers:** load / appear / scroll / hover / click, per layout, with a Test trigger mode in the
+      editor. Built on `feature/triggers` (2026-09-25), awaiting a real-site test.
+- [ ] **Site footer elements:** not now. The data format already reserves `data-shape-motion="site"`
+      (read by the runtime, page wins). Saving would go to site-wide injection via
+      Get/SaveInjectionSettings (docs/squarespace-saving.md). Badges on footer shapes are disabled.
+- [ ] **SVGs in code blocks:** on hold (user, 2026-09-25).
 
 ## Bigger ideas
 - [ ] **Chrome extension or pop-out panel for editing and saving.** Open the editor on the live site

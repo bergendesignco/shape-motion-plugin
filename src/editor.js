@@ -17,10 +17,22 @@
   var MARK_END = "<!-- SHAPE-MOTION-END -->";
   var EASES = ["none", "sine.inOut", "power1.inOut", "power2.inOut", "power3.inOut", "power2.out", "power2.in",
     "back.out(1.7)", "back.inOut(1.7)", "elastic.out(1, 0.4)", "bounce.out", "expo.inOut", "circ.inOut"];
+  var TRIGGERS = [["load", "Page load"], ["appear", "When it appears"], ["scroll", "Scroll-driven"], ["hover", "Hover"], ["click", "Click"]];
+  function triggerLabel(v) {
+    var t = TRIGGERS.filter(function (x) { return x[0] === v; })[0];
+    return t ? t[1] : "Page load";
+  }
+  var TRIGGER_HELP = {
+    load: "Plays as soon as the page loads.",
+    appear: "Scroll down until the shape comes into view. Scroll-based triggers can act oddly inside the Squarespace editor, so check the live page too.",
+    scroll: "Scroll the page: the shape moves along its path as you scroll. Scroll-based triggers can act oddly inside the Squarespace editor, so check the live page too.",
+    hover: "Hover over the shape (or its spot).",
+    click: "Click the shape (or its spot)."
+  };
   var ANCHORS = ["0% 0%", "50% 0%", "100% 0%", "0% 50%", "50% 50%", "100% 50%", "0% 100%", "50% 100%", "100% 100%"];
 
   // Editor state that survives the UI being rebuilt on every restart (view switches, edit mode).
-  var state = { selectedId: null, panelPos: null, dirty: false, status: "" };
+  var state = { selectedId: null, panelPos: null, dirty: false, status: "", testing: false };
 
   function pageElements() { return SM.data.page.elements; }
 
@@ -36,10 +48,7 @@
     return raw.replace(/-/g, " ").replace(/^./, function (c) { return c.toUpperCase(); });
   }
 
-  // The block's layout box. Its container doesn't move when the block is animated.
-  function anchorBox(el) {
-    return el.closest(".fe-block") || el.parentElement || el;
-  }
+  function anchorBox(el) { return SM.anchorBox(el); }
 
   // Site header/footer elements belong in the site-wide injection: not supported yet.
   function isSiteElement(el) {
@@ -198,6 +207,12 @@
       opt.value = Array.isArray(o) ? o[0] : o;
       s.appendChild(opt);
     });
+    // Keep a saved value that isn't one of the presets visible instead of showing a blank.
+    if (value != null && !options.some(function (o) { return (Array.isArray(o) ? o[0] : o) === value; })) {
+      var custom = make("option", null, String(value));
+      custom.value = value;
+      s.appendChild(custom);
+    }
     s.value = value;
     s.addEventListener("change", function () { onChange(s.value); });
     return s;
@@ -215,7 +230,7 @@
       gsap.registerPlugin(window.MotionPathHelper);
       var ui = [];          // nodes to remove on stop
       var cleanups = [];    // listeners to remove on stop
-      var helper = null, tween = null, statusEl = null, output = null, badges = [];
+      var helper = null, tween = null, testStop = null, statusEl = null, output = null, badges = [];
 
       function markDirty() { state.dirty = true; state.status = ""; showStatus(); }
       function showStatus() {
@@ -254,6 +269,7 @@
             markDirty();
           }
           state.selectedId = el.id;
+          state.testing = false;
           state.panelPos = null; // open next to the element
           SM.restart();
         });
@@ -404,6 +420,7 @@
 
       function closePanel() {
         state.selectedId = null;
+        state.testing = false;
         SM.restart();
       }
 
@@ -452,7 +469,10 @@
         }
 
         if (cfg) {
-          buildControls(row, actions);
+          // Settings saved before a key existed get its default.
+          SM.SETTING_KEYS.forEach(function (k) { if (cfg[k] === undefined) cfg[k] = SM.DEFAULT_SETTINGS[k]; });
+          if (state.testing) buildTestMode(body, note, actions);
+          else buildControls(row, actions);
         } else if (phone && selCfg.mobile === "same") {
           note("Using the desktop settings. Switch to Desktop view to edit them, or pick \"Own settings\".");
           tween = SM.buildTween(sel, selCfg.desktop); // preview only
@@ -481,7 +501,15 @@
         document.addEventListener("keydown", onKey);
         cleanups.push(function () { document.removeEventListener("keydown", onKey); });
 
-        if (cfg) rebuild();
+        if (cfg && state.testing) testStop = SM.animate(sel, cfg); // the real visitor behavior
+        else if (cfg) rebuild();
+      }
+
+
+      function buildTestMode(body, note, actions) {
+        body.appendChild(make("div", "smo-testing", "Testing trigger: " + triggerLabel(cfg.trigger)));
+        note(TRIGGER_HELP[cfg.trigger] || "");
+        actions([button("← Back to editing the path", function () { state.testing = false; SM.restart(); }, "is-primary")]);
       }
 
       // Next to the element (right, else left), kept on screen. A dragged position is kept.
@@ -547,11 +575,34 @@
         var secs = function (v) { return v + "s"; };
         var pct = function (v) { return Math.round(v * 100) + "%"; };
 
-        slider("Duration", "duration", 0.2, 15, 0.1, secs, "Seconds for one trip along the path");
-        slider("Delay", "delay", 0, 5, 0.1, secs, "Wait before the first run");
-        select("Ease", "ease", EASES, "Speed curve");
-        select("Playback", "playback", [["loop", "Loop (restart)"], ["yoyo", "Back and forth"], ["once", "Play once"]]);
-        slider("Pause between", "repeatDelay", 0, 5, 0.1, secs, "Pause between loops");
+        var trig = cfg.trigger || "load";
+        row("Trigger", selectEl(TRIGGERS, trig, function (v) {
+          cfg.trigger = v;
+          markDirty();
+          SM.restart(); // different trigger, different options
+        }), "What starts the animation");
+
+        if (trig === "appear") {
+          select("Starts when", "appearAt", [["top 85%", "Just visible"], ["top 70%", "A bit in"], ["top 50%", "Halfway up the screen"]],
+            "How far the shape's spot has scrolled into view before it plays");
+          select("Replay", "replay", [["once", "Only the first time"], ["every", "Every time it appears"], ["reverse", "Reverse when scrolled back up"]]);
+        } else if (trig === "scroll") {
+          select("Moves while", "scrollRange", [["cross", "Crossing the whole screen"], ["center", "Scrolling up to the middle"]],
+            "Which part of the scroll drives the path");
+          slider("Smoothing", "scrub", 0, 2, 0.1, secs, "0 = locked to the scrollbar; higher = catches up smoothly");
+        } else if (trig === "hover") {
+          select("On leave", "hoverLeave", [["reverse", "Go back"], ["finish", "Finish the trip"]]);
+        } else if (trig === "click") {
+          select("Each click", "clickMode", [["toggle", "There, then back"], ["replay", "Replay from the start"]]);
+        }
+
+        if (trig !== "scroll") slider("Duration", "duration", 0.2, 15, 0.1, secs, "Seconds for one trip along the path");
+        if (trig === "load" || trig === "appear") slider("Delay", "delay", 0, 5, 0.1, secs, "Wait before it starts");
+        select("Ease", "ease", EASES, trig === "scroll" ? "Speed curve (\"none\" feels most natural for scroll)" : "Speed curve");
+        if (trig === "load" || trig === "appear") {
+          select("Playback", "playback", [["loop", "Loop (restart)"], ["yoyo", "Back and forth"], ["once", "Play once"]]);
+          slider("Pause between", "repeatDelay", 0, 5, 0.1, secs, "Pause between loops");
+        }
         slider("Start", "start", 0, 1, 0.01, pct, "Where on the path the trip begins");
         slider("End", "end", 0, 1, 0.01, pct, "Where on the path the trip ends");
         select("Layout spot is", "home", [["start", "Path start (travel away)"], ["end", "Path end (travel in)"]],
@@ -579,11 +630,13 @@
         });
         row("Anchor point", grid, "Point on the shape that rides the path (and rotation pivot)");
 
-        actions([
+        var acts = [];
+        if (trig !== "load") acts.push(button("Test trigger", function () { syncPath(); state.testing = true; SM.restart(); }, "is-primary"));
+        actions(acts.concat([
           button("Replay", function () { tween.restart(true); }),
           button("New A→B path", function () { rebuild(starterPath(sel, "open")); }),
           button("New loop path", function () { rebuild(starterPath(sel, "loop")); })
-        ]);
+        ]));
       }
 
       return {
@@ -592,7 +645,8 @@
           syncPath();                    // keep unsaved path edits for when the editor comes back
           if (helper) helper.kill();     // removes the path overlay and reverts the tween
           else if (tween) tween.revert();
-          helper = tween = null;
+          if (testStop) testStop();
+          helper = tween = testStop = null;
           cleanups.forEach(function (fn) { fn(); });
           ui.forEach(function (n) { n.remove(); });
           document.querySelectorAll(".smo-hover").forEach(function (n) { n.classList.remove("smo-hover"); });
@@ -657,7 +711,9 @@
     ".smo-anchor{display:grid;grid-template-columns:repeat(3,18px);gap:4px}",
     ".smo-anchor button{all:unset;cursor:pointer;width:18px;height:18px;border-radius:3px;background:rgba(255,255,255,.18)}",
     ".smo-anchor button.is-active{background:#ff3b6b}",
-    ".smo-actions{display:flex;flex-wrap:wrap;gap:4px}"
+    ".smo-actions{display:flex;flex-wrap:wrap;gap:4px}",
+    ".smo-actions .is-primary{background:#ff3b6b}",
+    ".smo-testing{padding:6px 8px;border-radius:4px;background:rgba(255,59,107,.22);color:#ffc2d1}"
   ].join("\n");
   document.head.appendChild(style);
 })();

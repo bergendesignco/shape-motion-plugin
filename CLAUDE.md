@@ -52,6 +52,15 @@ See README.md for usage and the CONFIG reference.
   Save = GET → replace the marked block in `headerInjectCode` → POST (docs/squarespace-saving.md).
 - `legacy/motionpath-helper-snippet.html` is the old single-shape paste-in snippet (not maintained).
 
+## Triggers
+- `SM.animate(el, settings)` runs one element with its trigger and returns `stop()`. appear/scroll use
+  ScrollTrigger with `trigger: SM.anchorBox(el)` (the non-animated `.fe-block`). hover/click listen on
+  that box too. Non-load triggers render the path start immediately (`immediateRender`) so fly-ins wait
+  off to the side.
+- GSAP extension findings (dev/content.js, src/v2/runtime/library.js, docs QA matrix T-047a): default
+  appear start `top 85%`; its editor preview strips scrollTrigger; scroll inside the Squarespace
+  editor can be unreliable, so verify scroll/appear on the live page.
+
 ## Page facts (from the saved page)
 - 6 shape blocks in section 1: rectangle (`block-yui_3_17_2_1_1790263224900_423`), narrow-pow,
   circle, stepped-cross, triangle, hourglass. Shape SVGs use `preserveAspectRatio="none"`.

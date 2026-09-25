@@ -38,8 +38,21 @@ Open a page in the Squarespace editor (not in Edit mode). Only you see the edito
    | Bend one side only | Option/Alt-drag a handle |
    | Undo | Cmd/Ctrl+Z |
 
-4. **Adjust settings** in the panel: duration, ease, playback, start/end, anchor point and so on.
-   **Remove animation** is at the bottom.
+4. **Pick a trigger** and adjust settings in the panel. Only the options that apply to that trigger
+   show:
+
+   | Trigger | What happens | Its options |
+   |---|---|---|
+   | Page load | Plays right away (the default) | Duration, delay, playback, pause |
+   | When it appears | Waits at the start of its path, plays when scrolled into view | Starts when (just visible / a bit in / halfway), Replay (first time / every time / reverse on scroll back) |
+   | Scroll-driven | Scrolling moves it along the path, backwards when scrolling up | Moves while (crossing the screen / up to the middle), Smoothing |
+   | Hover | Plays while hovered | On leave: go back / finish the trip |
+   | Click | Plays on click (pointer cursor) | Each click: there then back / replay |
+
+   Hover and click listen on the block's spot (its layout box), so the shape moving away from the
+   cursor doesn't cancel the hover. **Test trigger** swaps the looping path preview for the real
+   behavior; **← Back to editing the path** returns. Scroll-based triggers can act oddly inside the
+   Squarespace editor, so check them on the live page. **Remove animation** is at the bottom.
 5. **Phones:** switch the editor to **Mobile** view. The panel's **On phones** option picks Off
    (default), Same as desktop, or Own settings.
 6. **Save** (in the bar, bottom-right) writes every element's settings on this page into its **Page
@@ -82,10 +95,22 @@ elements); page settings win. The editor doesn't save site-wide settings yet.
 | `autoRotate` | bool | Face the direction of travel |
 | `rotateOffset` | degrees | Extra rotation when auto-rotating |
 | `anchor` | `"x% y%"` | Point on the shape that rides the path and acts as the rotation pivot |
+| `trigger` | `"load"` / `"appear"` / `"scroll"` / `"hover"` / `"click"` | What starts it (missing = `"load"`) |
+| `appearAt` | ScrollTrigger start, e.g. `"top 85%"` | appear: how far into view |
+| `replay` | `"once"` / `"every"` / `"reverse"` | appear: replay behavior |
+| `scrub` | seconds (0 = locked) | scroll: smoothing |
+| `scrollRange` | `"cross"` / `"center"` | scroll: enters bottom → leaves top, or → middle |
+| `hoverLeave` | `"reverse"` / `"finish"` | hover: what leaving does |
+| `clickMode` | `"toggle"` / `"replay"` | click: what each click does |
+
+Hover, click and scroll make a single trip along the path (playback/repeat is ignored). Appear uses
+the playback setting once it starts.
 
 ## How it works
 
-- `src/runtime.js` (visitors) waits for `DOMContentLoaded` and reads the settings tags. If there's
+- `src/runtime.js` (visitors) waits for `DOMContentLoaded` and reads the settings tags. ScrollTrigger
+  is loaded only when a saved animation uses appear/scroll (and positions are re-measured after
+  `load`). If there's
   nothing to animate and no editor is needed, it stops before loading anything.
 - The editor (`src/editor.js` + MotionPathHelper) loads only inside the Squarespace editor frame, when
   `<html>` has `data-authenticated-account`, or with `?mph` in the URL.
